@@ -44,6 +44,34 @@ class GenericComponents(Components):
 
     pass
 
+class ControllableVSC(Components):
+    """
+    Controllable VSC components class.
+
+    This class is used for controllable VSC components. All functionality specific to
+    controllable VSCs is implemented here. Functionality for all components is implemented in
+    the abstract base class.
+
+    """
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """
+        Initialize ControllableVSC class.
+
+        See :class:`pypsa.components.abstract.Components` for more information.
+
+        Parameters
+        ----------
+        args : Any
+            Arguments of base class.
+        kwargs : Any
+            Keyword arguments of base class.
+
+        Returns
+        -------
+        None
+
+        """
+        super().__init__(*args, **kwargs)
 
 class Generators(Components):
     """
