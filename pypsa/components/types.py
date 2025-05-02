@@ -155,23 +155,33 @@ def _load_default_component_types(
 
     """
     for c_name, row in component_df.iterrows():
+        # Debug: Print the component being processed
+        print(f"Processing component: {c_name}, list_name: {row.list_name}")
+
         # Read in defaults attributes
         attrs_file_path = attrs_path / f"{row.list_name}.csv"
+        print(f"Attributes file path: {attrs_file_path}")  # Debug: Print attributes file path
         if not attrs_file_path.exists():
             msg = (
-                f"Could not find {attrs_path}. For each component, there must be a "
+                f"Could not find {attrs_file_path}. For each component, there must be a "
                 "corresponding file for its attributes."
             )
             raise FileNotFoundError(msg)
         attrs = pd.read_csv(attrs_file_path, index_col=0, na_values="n/a")
+        print(f"Attributes loaded for {c_name}: {attrs.head()}")  # Debug: Print loaded attributes
 
         # Read in standard types
         types_paths = standard_types_path / f"{row.list_name}.csv"
+        print(f"Standard types file path: {types_paths}")  # Debug: Print standard types file path
         if not types_paths.exists():
             standard_types = None
+            print(f"No standard types found for {c_name}.")  # Debug: No standard types
         else:
             standard_types = pd.read_csv(types_paths, index_col=0)
+            print(f"Standard types loaded for {c_name}: {standard_types.head()}")  # Debug: Print loaded standard types
 
+        # Add the component type
+        print(f"Adding component type: {c_name}")  # Debug: Adding component
         add_component_type(
             name=c_name,
             list_name=row.list_name,
@@ -180,6 +190,7 @@ def _load_default_component_types(
             defaults_df=attrs,
             standard_types_df=standard_types,
         )
+        print(f"Component {c_name} added successfully.")  # Debug: Component added
 
 
 def get(name: str) -> ComponentType:
@@ -207,11 +218,16 @@ def get(name: str) -> ComponentType:
     'Generator' Component Type
 
     """
+
+    print(f"Looking for component type: {name}") # Debug statement to print the name being looked up
+    
     if name in COMPONENT_ALIAS_DICT:
+        print(f"Mapping alias '{name}' to '{COMPONENT_ALIAS_DICT[name]}'")  # Debug: Alias mapping
         name = COMPONENT_ALIAS_DICT[name]
     try:
         return all_components[name]
     except KeyError:
+        print(f"Available components: {list(all_components.keys())}")  # Debug: Print available components
         msg = (
             f"Component type '{name}' not found. If you use a custom component, make "
             f"sure to have it added. Available types are: "

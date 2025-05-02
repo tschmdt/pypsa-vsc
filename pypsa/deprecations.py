@@ -14,4 +14,5 @@ COMPONENT_ALIAS_DICT = {
     "Store": "stores",
     "ShuntImpedance": "shunt_impedances",
     "Shape": "shapes",
+    "ControllableVSC": "controllable_vscs",
 }

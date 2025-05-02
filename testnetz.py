@@ -16,6 +16,9 @@ netz.add("Generator", "Gen 1", bus="Bus 1", p_set=100, control="Slack")
 # Last
 netz.add("Load", "Load 2", bus="Bus 2", p_set=100)
 
+# Voltage Source Converter (VSC)
+netz.add("ControllableVSC", "VSC 1", bus="Bus 2")
+
 # Power Flow
 netz.pf()
 

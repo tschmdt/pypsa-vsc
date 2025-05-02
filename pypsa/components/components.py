@@ -44,9 +44,9 @@ class GenericComponents(Components):
 
     pass
 
-class ControllableVSC(Components):
+class ControllableVSCs(Components):
     """
-    Controllable VSC components class.
+    Controllable VSCs components class.
 
     This class is used for controllable VSC components. All functionality specific to
     controllable VSCs is implemented here. Functionality for all components is implemented in
@@ -206,6 +206,7 @@ class Lines(Components):
 CLASS_MAPPING = {
     "Generator": Generators,
     "Line": Lines,
+    "ControllableVSC":ControllableVSCs
 }
 
 

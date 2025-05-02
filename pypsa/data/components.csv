@@ -14,3 +14,5 @@ StorageUnit,storage_units,"Storage unit with fixed nominal-energy-to-nominal-pow
 Store,stores,"Generic store, whose capacity may be optimised.",controllable_one_port
 ShuntImpedance,shunt_impedances,"Shunt y = g + jb.",passive_one_port
 Shape,shapes,"Geographical shapes of the network components.",shape
+ControllableVSC,controllable_vscs,"Voltage Source Converter with Q control for voltage support.",controllable_one_port
+
