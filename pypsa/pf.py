@@ -1247,7 +1247,7 @@ def calculate_Y(
 
     phase_shift = np.exp(1.0j * branches["phase_shift"].fillna(0.0) * np.pi / 180.0)
 
-    # build the admittance matrix elements for each branch
+    # build the admittance matrix elements for each branch #ts: Matrix wird für jeden Branch aufgebaut
     Y11 = (y_se + 0.5 * y_sh) / tau_lv**2
     Y10 = -y_se / tau_lv / tau_hv / phase_shift
     Y01 = -y_se / tau_lv / tau_hv / np.conj(phase_shift)
@@ -1281,10 +1281,10 @@ def calculate_Y(
     # build Y{0, 1} such that Y{0, 1} * V is the vector complex branch currents
 
     i = r_[np.arange(num_branches), np.arange(num_branches)]
-    sub_network.Y0 = csr_matrix(
+    sub_network.Y0 = csr_matrix(                                           #ts: zeile 1 der Y Matrix
         (r_[Y00, Y01], (i, r_[bus0, bus1])), (num_branches, num_buses)
     )
-    sub_network.Y1 = csr_matrix(
+    sub_network.Y1 = csr_matrix(                                           #ts: zeile 2 der Y Matrix
         (r_[Y10, Y11], (i, r_[bus0, bus1])), (num_branches, num_buses)
     )
 
@@ -1294,6 +1294,18 @@ def calculate_Y(
         + C1.T * sub_network.Y1
         + csr_matrix((Y_sh, (np.arange(num_buses), np.arange(num_buses))))
     )
+
+    # ts: print Admittanzmatrix
+
+    print("===== ADMITTANZMATRIK (Y) =====")
+    print(sub_network.Y.toarray())
+    print("===== ADMITTANZMATRIK (Y0) =====")
+    print(sub_network.Y0.toarray())
+    print("===== ADMITTANZMATRIK (Y1) =====")
+    print(sub_network.Y1.toarray())
+
+
+
 
 
 def aggregate_multi_graph(sub_network: SubNetwork) -> None:
