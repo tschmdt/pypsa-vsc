@@ -595,8 +595,10 @@ def sub_network_pf(
             J_Q_blocks = [J10, J11]
 
         J = svstack([shstack(J_P_blocks), shstack(J_Q_blocks)], format="csr")
-
+        print("===== JACOBI-MATRIX =====")
+        print(J.toarray())
         return J
+    
 
     # Set what we know: slack V and v_mag_pu for PV buses
     v_mag_pu_set = get_as_dense(n, "Bus", "v_mag_pu_set", sns)
@@ -700,6 +702,9 @@ def sub_network_pf(
     if not convs.all():
         not_converged = sns[~convs]
         logger.warning(f"Power flow did not converge for {list(not_converged)}.")
+     # Print the number of iterations
+    print("Number of iterations for each snapshot:")
+    print(iters)
 
     # now set everything
     if distribute_slack:
@@ -1281,10 +1286,10 @@ def calculate_Y(
     # build Y{0, 1} such that Y{0, 1} * V is the vector complex branch currents
 
     i = r_[np.arange(num_branches), np.arange(num_branches)]
-    sub_network.Y0 = csr_matrix(                                           #ts: zeile 1 der Y Matrix
+    sub_network.Y0 = csr_matrix(                                           #ts:
         (r_[Y00, Y01], (i, r_[bus0, bus1])), (num_branches, num_buses)
     )
-    sub_network.Y1 = csr_matrix(                                           #ts: zeile 2 der Y Matrix
+    sub_network.Y1 = csr_matrix(                                           #ts: 
         (r_[Y10, Y11], (i, r_[bus0, bus1])), (num_branches, num_buses)
     )
 
@@ -1295,7 +1300,7 @@ def calculate_Y(
         + csr_matrix((Y_sh, (np.arange(num_buses), np.arange(num_buses))))
     )
 
-    # ts: print Admittanzmatrix
+    # ts: print bus Admittanzmatrix (global)
 
     print("===== ADMITTANZMATRIK (Y) =====")
     print(sub_network.Y.toarray())
