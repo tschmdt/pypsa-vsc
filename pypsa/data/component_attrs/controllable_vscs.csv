@@ -15,3 +15,4 @@ control,string,n/a,PQ,"Control strategy for VSC must be ""PQ"".",Input (optional
 p,series,MW,0.,active power at bus (usually 0),Output
 q,series,MVar,0.,reactive power at bus,Output
 active,boolean,n/a,True,Whether to consider the component in basic functionality or not,Input (optional)
+i_max,static or series,A,0.0,Maximum current through the VSC,Input (optional) 

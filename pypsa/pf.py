@@ -595,8 +595,8 @@ def sub_network_pf(
             J_Q_blocks = [J10, J11]
 
         J = svstack([shstack(J_P_blocks), shstack(J_Q_blocks)], format="csr")
-        print("===== JACOBI-MATRIX =====")
-        print(J.toarray())
+        #print("===== JACOBI-MATRIX =====")
+        #print(J.toarray())
         return J
     
 
@@ -703,8 +703,8 @@ def sub_network_pf(
         not_converged = sns[~convs]
         logger.warning(f"Power flow did not converge for {list(not_converged)}.")
      # Print the number of iterations
-    print("Number of iterations for each snapshot:")
-    print(iters)
+    #print("Number of iterations for each snapshot:")
+    #print(iters)
 
     # now set everything
     if distribute_slack:
@@ -1302,12 +1302,12 @@ def calculate_Y(
 
     # ts: print bus Admittanzmatrix (global)
 
-    print("===== ADMITTANZMATRIK (Y) =====")
-    print(sub_network.Y.toarray())
-    print("===== ADMITTANZMATRIK (Y0) =====")
-    print(sub_network.Y0.toarray())
-    print("===== ADMITTANZMATRIK (Y1) =====")
-    print(sub_network.Y1.toarray())
+    #print("===== ADMITTANZMATRIK (Y) =====")
+    #print(sub_network.Y.toarray())
+    #print("===== ADMITTANZMATRIK (Y0) =====")
+    #print(sub_network.Y0.toarray())
+    #print("===== ADMITTANZMATRIK (Y1) =====")
+    #print(sub_network.Y1.toarray())
 
 
 

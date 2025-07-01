@@ -9,7 +9,7 @@ netz.add("Bus", "Bus 2", v_nom=110)
 netz.add("Bus", "Bus 3", v_nom=110)
 
 
-# Leitung (0.005+0..j)*100km
+# Leitung (0.005+0.1j)*100km
 netz.add("Line", "1-2", bus0="Bus 1", bus1="Bus 2", x=10, r=0.5)
 netz.add("Line", "1-3", bus0="Bus 1", bus1="Bus 3", x=10, r=0.5)
 netz.add("Line", "2-3", bus0="Bus 2", bus1="Bus 3", x=10, r=0.5)
@@ -24,10 +24,10 @@ netz.add("Load", "Load 3", bus="Bus 3", p_set=100)
 
 
 # Link
-#netz.add("Link", "Link 1", bus0="Bus 1", bus1="Bus 2", p_set=30, efficiency=0.9)
+netz.add("Link", "Link 1", bus0="Bus 1", bus1="Bus 2", p_set=30, efficiency=0.9)
 
 # Voltage Source Converter (VSC)
-#netz.add("ControllableVSC", "VSC 1", bus="Bus 2", q_set=20)
+netz.add("ControllableVSC", "VSC 1", bus="Bus 2", q_set=20)
 
 # Power Flow
 netz.pf()
