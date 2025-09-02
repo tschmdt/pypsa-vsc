@@ -1563,4 +1563,4 @@ def network_batch_lpf(n: Network, snapshots: Sequence | None = None) -> None:
     raise NotImplementedError("Batch linear power flow not supported yet.")
 
 print("Das is mein eigener, in pf.py geschriebenener Code, der bei jedem Lastfluss (pf) aufgerufen wird.")
-
+print("Test 2.9.2025")

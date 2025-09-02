@@ -219,6 +219,7 @@ nominal_attrs = {
     "Link": "p_nom",
     "Store": "e_nom",
     "StorageUnit": "p_nom",
+    "ControllableVSC": "p_nom",
 }
 
 

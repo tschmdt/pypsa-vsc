@@ -485,6 +485,10 @@ class Network:
 
         self.all_components = set(component_types_df.index) - {"Network"}
 
+        print("Passive one-port components:", self.passive_one_port_components)
+        print("Controllable one-port components:", self.controllable_one_port_components)
+        print("All one-port components:", self.one_port_components)
+
     def _initialize_components(self) -> None:
         components = component_types_df.index.to_list()
 
