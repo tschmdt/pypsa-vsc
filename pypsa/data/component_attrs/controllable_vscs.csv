@@ -1,6 +1,8 @@
 attribute,type,unit,default,description,status
 name,string,n/a,n/a,Unique name,Input (required)
 bus,string,n/a,n/a,name of bus to which controllable vsc is attached,Input (required)
+link,string,n/a,NaN,name of link to which controllable vsc is attached,Input (required)
+side,string,n/a,NaN,Side of the link to which the controllable vsc is attached ("bus0" or "bus1"),Input (required)
 q_min,float,MVar,-inf,Minimum reactive power output.,Input (optional)
 q_max,float,MVar,inf,Maximum reactive power output.,Input (optional)
 q_set,static or series,MVar,0.,reactive power set point (for PF),Input (optional)
