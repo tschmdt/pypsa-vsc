@@ -1,11 +1,11 @@
 name: pypsa_dc_5
 channels:
-  - gurobi
   - conda-forge
   - defaults
   - https://repo.anaconda.com/pkgs/main
   - https://repo.anaconda.com/pkgs/r
   - https://repo.anaconda.com/pkgs/msys2
+  - gurobi
 dependencies:
   - _python_abi3_support=1.0=hd8ed1ab_2
   - affine=2.4.0=pyhd8ed1ab_1
@@ -444,3 +444,4 @@ dependencies:
       - xlsxwriter==3.2.9
       - zipp==3.23.0
 prefix: C:\Users\E370_\anaconda3\envs\pypsa_dc_5
+
