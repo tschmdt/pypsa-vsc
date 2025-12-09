@@ -95,8 +95,6 @@ dependencies:
   - libcurl
   - libssh2
   - cryptography
-  - ncurses
-  - libiconv
   - libsodium
   - lz4-c
   - pcre2
