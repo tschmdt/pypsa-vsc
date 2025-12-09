@@ -1,6 +1,5 @@
 name: pypsa_hybrid
 channels:
-  - gurobi
   - conda-forge
   - defaults
   - https://repo.anaconda.com/pkgs/main
@@ -44,7 +43,6 @@ dependencies:
   - numexpr
   - pyomo
   - highs
-  - gurobi=12.0
   - ipopt
   - mumps-seq
   - linopy
@@ -137,6 +135,7 @@ dependencies:
   - qtconsole
   - qtpy
   - sip
+
 
 
 
