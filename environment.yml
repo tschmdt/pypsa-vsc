@@ -110,9 +110,6 @@ dependencies:
   - packaging
   
   # Linter, Formatierer & Spyder (Optional, aber beibehalten)
-  - spyder
-  - spyder-kernels
-  - pylint
   - flake8
   - black
   - isort
@@ -126,8 +123,6 @@ dependencies:
   - whatthepatch
   
   # GUI-Komponenten
-  - qt-main=5.15
-  - pyqt=5.15
   - qt-webengine
   - pyqtwebengine
   - qtawesome
@@ -135,6 +130,7 @@ dependencies:
   - qtconsole
   - qtpy
   - sip
+
 
 
 
