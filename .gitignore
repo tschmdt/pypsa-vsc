@@ -64,3 +64,20 @@ dev
 .venv
 .aider*
 uv.lock
+
+# Kompilierte Python-Dateien
+__pycache__/
+*.pyc
+
+# Conda/Umgebungsspezifisches
+# Ignoriert den Ordner, in dem Conda die Umgebungen speichert
+envs/ 
+
+# Solver Output und Binärdateien (z.B. Gurobi)
+*.lp
+*.mps
+*.ilp
+
+# Universeller Ergebnisordner
+/results/
+/data/

@@ -150,16 +150,50 @@ def _network_prepare_and_run_pf(
     sns = as_index(n, snapshots, "snapshots")
 
     # deal with links
+    #if not n.links.empty:
+        #p_set = get_as_dense(n, "Link", "p_set", sns)
+        #n.links_t.p0.loc[sns] = p_set.loc[sns]
+        #for i in ["1"] + additional_linkports(n):
+            #eff_name = "efficiency" if i == "1" else f"efficiency{i}"
+            #efficiency = get_as_dense(n, "Link", eff_name, sns)
+            #links = n.links.index[n.links[f"bus{i}"] != ""]
+            #n.links_t[f"p{i}"].loc[sns, links] = (
+                #-n.links_t.p0.loc[sns, links] * efficiency.loc[sns, links]
+            #)
+
+    # deal with links
     if not n.links.empty:
+        # Holt p_set als Timeseries für die aktuellen Snapshots (sns)
         p_set = get_as_dense(n, "Link", "p_set", sns)
+        
+        # P0 ist die Entnahme aus Bus 0 und wird auf den p_set-Wert gesetzt (Ihre Steuergröße)
         n.links_t.p0.loc[sns] = p_set.loc[sns]
+        
+        # Schleife über alle Link-Ports (bus1, bus2, ...)
         for i in ["1"] + additional_linkports(n):
             eff_name = "efficiency" if i == "1" else f"efficiency{i}"
             efficiency = get_as_dense(n, "Link", eff_name, sns)
+            # Filtert nur Links, die den aktuellen Port i auch tatsächlich besitzen
             links = n.links.index[n.links[f"bus{i}"] != ""]
-            n.links_t[f"p{i}"].loc[sns, links] = (
-                -n.links_t.p0.loc[sns, links] * efficiency.loc[sns, links]
-            )
+            
+            P0 = n.links_t.p0.loc[sns, links]
+            Eff = efficiency.loc[sns, links]
+            Pi = pd.DataFrame(0.0, index=P0.index, columns=P0.columns)
+            
+            # === Flussrichtungsabhängige Verlustlogik (Verlust am Empfänger) ===
+            
+            # A) Fluss 0 -> i (P0 > 1e-9): Bus i ist Empfänger (Nettoleistung)
+            # P0 ist Brutto. P_i ist Netto. P_i (Entnahme) = -P0 * Eff
+            mask_0_to_i = P0 > 1e-9 
+            Pi[mask_0_to_i] = -P0[mask_0_to_i] * Eff[mask_0_to_i]
+
+            # B) Fluss i -> 0 (P0 < -1e-9): Bus 0 ist Empfänger (Nettoleistung)
+            # P0 ist Netto. P_i ist Brutto. P_i (Entnahme) = -P0 / Eff
+            mask_i_to_0 = P0 < -1e-9 
+            Pi[mask_i_to_0] = -P0[mask_i_to_0] / Eff[mask_i_to_0]
+            
+            # Speichert die korrigierte Leistung P_i in die Timeseries
+            n.links_t[f"p{i}"].loc[sns, links] = Pi
 
     itdf = pd.DataFrame(index=sns, columns=n.sub_networks.index, dtype=int)
     difdf = pd.DataFrame(index=sns, columns=n.sub_networks.index)
@@ -1563,4 +1597,3 @@ def network_batch_lpf(n: Network, snapshots: Sequence | None = None) -> None:
     raise NotImplementedError("Batch linear power flow not supported yet.")
 
 print("Das is mein eigener, in pf.py geschriebenener Code, der bei jedem Lastfluss (pf) aufgerufen wird.")
-print("Test 2.9.2025")

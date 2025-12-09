@@ -7,6 +7,7 @@ from pypsa import descriptors
 netz = pypsa.Network()
 
 netz.set_snapshots(pd.Index([0]))
+now = netz.snapshots[0]
 
 
 
@@ -71,6 +72,8 @@ netz.controllable_vscs.loc["VSC 2", ["link", "side"]] = ["Link 1", "bus1"]
 netz.controllable_vscs.loc["VSC 3", ["link", "side"]] = ["Link 2", "bus0"]
 netz.controllable_vscs.loc["VSC 4", ["link", "side"]] = ["Link 2", "bus1"]
 
+branch_outages = netz.lines.index[:2]
+
 
 # "behandele ControllableVSC wie eine nominale Komponente mit Nominalwert p_nom "
 
@@ -95,7 +98,7 @@ print("Laoding_default:", loading_default)
 print("Links:", netz.links_t.p0)
 
 
-netz.optimize()
+#netz.optimize()
 
 
 
