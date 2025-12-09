@@ -1,11 +1,11 @@
 name: pypsa_dc_5
 channels:
-  - gurobi
   - conda-forge
   - defaults
   - https://repo.anaconda.com/pkgs/main
   - https://repo.anaconda.com/pkgs/r
   - https://repo.anaconda.com/pkgs/msys2
+  - gurobi
 dependencies:
   - _python_abi3_support=1.0=hd8ed1ab_2
   - affine=2.4.0=pyhd8ed1ab_1
@@ -112,7 +112,6 @@ dependencies:
   - imagesize=1.4.1=pyhd8ed1ab_0
   - importlib_resources=6.5.2=pyhd8ed1ab_0
   - inflection=0.5.1=pyhd8ed1ab_1
-  - intel-openmp=2024.2.1=h57928b3_1083
   - intervaltree=3.1.0=pyhd8ed1ab_1
   - ipopt=3.14.17=h812a801_2
   - ipykernel=6.30.1=pyh3521513_0
@@ -177,7 +176,6 @@ dependencies:
   - libzip=1.8.0=h519de47_1
   - libzlib=1.2.13=h2466b09_6
   - linopy=0.5.5=pyhd8ed1ab_0
-  - llvm-openmp=20.1.8=hfa2b4ca_0
   - locket=1.0.0=pyhd8ed1ab_0
   - lz4-c=1.9.4=h2bbff1b_1
   - mapclassify=2.8.1=pyhd8ed1ab_1
@@ -444,3 +442,5 @@ dependencies:
       - xlsxwriter==3.2.9
       - zipp==3.23.0
 prefix: C:\Users\E370_\anaconda3\envs\pypsa_dc_5
+
+
