@@ -1,9 +1,9 @@
 # PyPSA-VSC - Python for Power System Analysis with Voltage-Source Converter extension
 
 ### Functionality
-This PyPSA Version extentends the original with certain functionalities regarding the direct-current (link) power transmission. The converter technology of choice is the Voltage-Source Converter (VSC). the VSC has unique features, mainly its possibility to nearly control active- and reactive power independantly. The VSC is modelled as an emulated component using the existing Link components and the newly creates ControllableVSC component. Together, a HVDC-VSC-Link (VHL) can be modelled. To effectively model a network with a VHL, several key considerations must be taken
-into account. The VHL is an emulated model that utilizes the Link- and ControllableVSC-components. As users, we have multiple degrees of freedom to configure the
-VHL optimization. The complete set of attributes and functionalities can be found in the main document. The most critical attributes include:
+This PyPSA version extends the original implementation with additional functionalities for direct-current (link) power transmission. The converter technology of choice is the Voltage Source Converter (VSC). The VSC has unique features, most notably its ability to control active and reactive power almost independently.
+The VSC is modeled as an emulated component using the existing Link component and the newly created ControllableVSC component. Together, these allow an HVDC-VSC link (VHL) to be modeled.
+To effectively model a network with a VHL, several key considerations must be taken into account. The VHL is an emulated model that utilizes both the Link and the newly created ControllableVSC components. As users, we have multiple degrees of freedom to configure the VHL optimization. The complete set of attributes and functionalities can be found in the main document. The most critical attributes include:
 
 - Power angle limit in degrees, with a default of 25.
 - Maximum line loading in p.u., with a default of 0.95.
