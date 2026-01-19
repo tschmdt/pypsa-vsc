@@ -1,4 +1,4 @@
-# PyPSA-vsc - Python for Power System Analysis with Voltage-Source Converter extension
+# PyPSA-VSC - Python for Power System Analysis with Voltage-Source Converter extension
 
 ## Functionality
 This PyPSA Version extentends the original with certain functionalities regarding the direct-current (link) power transmission. The converter technology of choice is the Voltage-Source Converter (VSC). the VSC has unique features, mainly its possibility to nearly control active- and reactive power independantly. The VSC is modelled as an emulated component using the existing Link components and the newly creates ControllableVSC component. Together, a HVDC-VSC-Link (VHL) can be modelled. To effectively model a network with a VHL, several key considerations must be taken
