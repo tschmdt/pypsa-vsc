@@ -10,7 +10,7 @@ To effectively model a network with a VHL, several key considerations must be ta
 - Rated apparent power of the VSC in MVA, with a default of 400.
 
 ### Usage 
-To set up a VHL in our model, we utilize the ControllerConfig class and the VSCController class, both found in the combined_control folder within VSCController.py.
+To set up a VHL in our model, we utilize the *ControllerConfig* class and the *VSCController* class, both found in the combined_control folder within *VSCController.py*.
 
 A VHL is implemented by:
 ```py
