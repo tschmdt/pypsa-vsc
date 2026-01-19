@@ -1,5 +1,6 @@
 # PyPSA-vsc - Python for Power System Analysis with Voltage-Source Converter extension
 
+## Functionality
 This PyPSA Version extentends the original with certain functionalities regarding the direct-current (link) power transmission. The converter technology of choice is the Voltage-Source Converter (VSC). the VSC has unique features, mainly its possibility to nearly control active- and reactive power independantly. The VSC is modelled as an emulated component using the existing Link components and the newly creates ControllableVSC component. Together, a HVDC-VSC-Link (VHL) can be modelled. To effectively model a network with a VHL, several key considerations must be taken
 into account. The VHL is an emulated model that utilizes the Link- and ControllableVSC-components. As users, we have multiple degrees of freedom to configure the
 VHL optimization. The complete set of attributes and functionalities can be found in the main document. The most critical attributes include:
@@ -9,28 +10,31 @@ VHL optimization. The complete set of attributes and functionalities can be foun
 To set up a VHL in our model, we utilize the ControllerConfig class and the VSCController class, both found in the combined_control folder within VSCController.py.
 
 A VHL is implemented by:
+```py
 
-*from combined_control.VSCController import ControllerConfig,VSCController*
+from combined_control.VSCController import ControllerConfig,VSCController
 
-*n.add("Link", "Link 3-4", bus0= "Bus 3", bus1 = "Bus 4", p_set = -100 , efficiency = 0.95, p_nom = 500)*
+n.add("Link", "Link 3-4", bus0= "Bus 3", bus1 = "Bus 4", p_set = -100 , efficiency = 0.95, p_nom = 500)
 
-*n.add("ControllableVSC", "VSC 1", bus="Bus 3", link = "Link 3-4", side = "bus0")*
+n.add("ControllableVSC", "VSC 1", bus="Bus 3", link = "Link 3-4", side = "bus0")
 
-*n.add("ControllableVSC", "VSC 2", bus="Bus 4", link = "Link 3-4", side = "bus1")*
-
+n.add("ControllableVSC", "VSC 2", bus="Bus 4", link = "Link 3-4", side = "bus1")
+```
 The main objective of the VHL is to operate system supportive. Therefore two optimization problems are solved, with the aim to
 - reduce system-wide ac line loadings (highly loaded lines are taken into account more heavily in the objective function), by controlling the active power transfer via the Link.
 - stabilize system-wide bus voltages (1 p.u.), by adjusting reactive power injection/consumption.
 
 This optimization run can be started with:
 
-*cfg = ControllerConfig(angle_limit_deg = 25, max_line_loading = 0.9, S_rated = 300, n1_guard_enable = False)*
+```py
+cfg = ControllerConfig(angle_limit_deg = 25, max_line_loading = 0.9, S_rated = 300, n1_guard_enable = False)
 
-*ctl = VSCController(n, config= cfg)*
+ctl = VSCController(n, config= cfg)
 
-*p_results, q_results = ctl.run_mode(mode="combined")*
+p_results, q_results = ctl.run_mode(mode="combined")
+```
 
-In the following the official PyPSA informations can be found.
+## In the following the official PyPSA informations can be found.
 
 
 
