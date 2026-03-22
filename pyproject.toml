@@ -42,6 +42,8 @@ dependencies = [
     "deprecation",
     "validators",
     "highspy",
+    "pyomo>=6.10.0",
+    "lxml>=6.0.2",
 ]
 
 [project.urls]
@@ -55,6 +57,7 @@ excel = ["openpyxl", "python-calamine"]
 gurobipy = ["gurobipy"]
 cloudpath = ["cloudpathlib"]
 dev = [
+    "ipython",
     "pytest",
     "pytest-mpl", 
     "coverage",

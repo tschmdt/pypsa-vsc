@@ -9,6 +9,13 @@ To effectively model a network with a VHL, several key considerations must be ta
 - Maximum line loading in p.u., with a default of 0.95.
 - Rated apparent power of the VSC in MVA, with a default of 400.
 
+### Activation
+By march 2026 the version has migrated to uv! Therefore after cloning the repo use:
+git clone <repo>
+cd repo
+git checkout migrate-to-uv
+in order be able to install all dependencies etc correct with uv.
+
 ### Usage 
 To set up a VHL in our model, we utilize the *ControllerConfig* class and the *VSCController* class, both found in the combined_control folder within *VSCController.py*.
 
