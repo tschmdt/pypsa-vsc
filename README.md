@@ -10,11 +10,7 @@ To effectively model a network with a VHL, several key considerations must be ta
 - Rated apparent power of the VSC in MVA, with a default of 400.
 
 ### Activation
-By march 2026 the version has migrated to uv! Therefore after cloning the repo use:
-git clone <repo>
-cd repo
-git checkout migrate-to-uv
-in order be able to install all dependencies etc correct with uv.
+By march 2026 the version has migrated to uv! Hence, the main branch has beeing updated! Old instructions using conda are deprecated. Use uv instead. All dependencies are updated in pyproject.toml.
 
 ### Usage 
 To set up a VHL in our model, we utilize the *ControllerConfig* class and the *VSCController* class, both found in the combined_control folder within *VSCController.py*.
