@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name="pypsa"
-dynamic = ["version"]
+version = "0.34.0"
 description="Python for Power Systems Analysis"
 readme="README.md"
 authors=[{name = "PyPSA Developers, see https://pypsa.readthedocs.io/en/latest/developers.html", email = "t.brown@tu-berlin.de"}]
