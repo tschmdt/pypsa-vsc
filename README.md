@@ -1,16 +1,42 @@
 # PyPSA-VSC - Python for Power System Analysis with Voltage-Source Converter extension
 
 ### Functionality
-This PyPSA version extends the original implementation with additional functionalities for direct-current (link) power transmission. The converter technology of choice is the Voltage Source Converter (VSC). The VSC has unique features, most notably its ability to control active and reactive power almost independently.
-The VSC is modeled as an emulated component using the existing Link component and the newly created ControllableVSC component. Together, these allow an HVDC-VSC link (VHL) to be modeled.
-To effectively model a network with a VHL, several key considerations must be taken into account. The VHL is an emulated model that utilizes both the Link and the newly created ControllableVSC components. As users, we have multiple degrees of freedom to configure the VHL optimization. The complete set of attributes and functionalities can be found in the main document. The most critical attributes include:
+This PyPSA version extends the original implementation with additional functionalities for direct-current power transmission. The converter technology of choice is the Voltage Source Converter (VSC). The VSC has unique features, most notably its ability to control active and reactive power almost independently.
+The VSC is modeled as an emulated component using the existing Link component and the newly created ControllableVSC component. Together, they allow to model an HVDC-VSC-Link, referred to as VHL.
+To effectively model a network with a VHL, several key considerations must be taken into account. As a user, you have multiple degrees of freedom to configure the VHL optimization. The complete set of attributes and functionalities can be found in the main document. The most critical attributes include:
 
 - Power angle limit in degrees, with a default of 25.
 - Maximum line loading in p.u., with a default of 0.95.
 - Rated apparent power of the VSC in MVA, with a default of 400.
 
-### Activation
+The PyPSA-VSC Version is an extension of PyPSA, therefore all original functionalities remain unchanged.
+
+PyPSA-VSC can be interpreted as an additional framework for modeling and analyzing VSC-based HVDC links. Although simplifications are applied, the VHL representation captures all relevant physical properties and operational constraints. In this formulation, bus0 is always defined as the master bus, providing two degrees of freedom: active power (P) and reactive power (Q).
+
+Building on this physical representation, PyPSA-VSC enables users to run an optimized operation mode of the VHL. The selection of bus0 (the sending or starting bus) is critical, as it is designated as the master bus; consequently, the optimization variables are determined at this bus. Bus1 is treated as the slave bus.
+
+The objective of the VHL operation optimization is to homogenize AC line loadings and smooth voltage profiles across the network. The optimizer takes the system-wide network state as input and determines the optimal active and reactive power setpoints of the link to achieve these goals.
+
+Active and reactive power control can be executed separately. By default (combined run mode), active power optimization is performed first. During this step, the available apparent power limit is restricted to $\frac{1}{\sqrt{2}}$ * S_vsc, ensuring sufficient headroom for subsequent reactive power optimization.
+
+After determining the optimal active power setpoint, an AC power flow calculation is performed to accurately represent the network state. Based on these results, the remaining reactive power headroom is recalculated and imposed as a constraint for the subsequent reactive power optimization step. The process concludes with a final AC power flow.
+
+Internally, the optimization is implemented using linearized approximations.
+
+
+
+### Updates
 By march 2026 the version has migrated to uv! Hence, the main branch has beeing updated! Old instructions using conda are deprecated. Use uv instead. All dependencies are updated in pyproject.toml.
+
+### Installation using uv
+Using Bash:
+git clone https://github.com/tschmdt/pypsa-vsc.git
+cd pypsa-vsc
+uv sync
+uv sync --extra gurobipy (Note: A valid Gurobi license is required for optimization.)
+uv run python <path/to/script.py>
+optional: uv sync --extra dev
+Note: All dependencies as requirements are set and can be found in pyproject.toml. Using uv (sync) automatically creates a .venv and installs PyPSA-VSC in editable mode using the rquired settings.
 
 ### Usage 
 To set up a VHL in our model, we utilize the *ControllerConfig* class and the *VSCController* class, both found in the combined_control folder within *VSCController.py*.
@@ -39,6 +65,8 @@ ctl = VSCController(n, config= cfg)
 
 p_results, q_results = ctl.run_mode(mode="combined")
 ```
+
+### Example 
 
 ## In the following the official PyPSA informations can be found.
 
