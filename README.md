@@ -17,7 +17,7 @@ Building on this physical representation, PyPSA-VSC enables users to run an opti
 
 The objective of the VHL operation optimization is to homogenize AC line loadings and smooth voltage profiles across the network. The optimizer takes the system-wide network state as input and determines the optimal active and reactive power setpoints of the link to achieve these goals.
 
-Active and reactive power control can be executed separately. By default (combined run mode), active power optimization is performed first. During this step, the available apparent power limit is restricted to $\frac{1}{\sqrt{2}}$ * S_vsc, ensuring sufficient headroom for subsequent reactive power optimization.
+Active and reactive power control can be executed separately. By default (combined run mode), active power optimization is performed first. During this step, the available apparent power limit is restricted to $\frac{1}{\sqrt{2}} * S_{vsc}$, ensuring sufficient headroom for subsequent reactive power optimization.
 
 After determining the optimal active power setpoint, an AC power flow calculation is performed to accurately represent the network state. Based on these results, the remaining reactive power headroom is recalculated and imposed as a constraint for the subsequent reactive power optimization step. The process concludes with a final AC power flow.
 
