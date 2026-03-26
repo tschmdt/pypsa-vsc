@@ -70,6 +70,110 @@ p_results, q_results = ctl.run_mode(mode="combined")
 ```
 
 ### Example 
+```py
+# Demo 1
+import pypsa
+import numpy as np
+import pandas as pd
+
+# Create a network
+n = pypsa.Network()
+
+# Add Buses
+bus_names = [f"Bus {i}" for i in range(1, 5)]
+n.add("Bus", bus_names, v_nom=110)
+
+# Add Lines
+n.add("Line", "1-2", bus0="Bus 1", bus1="Bus 2", x=10, r=0.5, s_nom=250)
+n.add("Line", "1-4", bus0="Bus 1", bus1="Bus 4", x=15, r=0.25, s_nom=250)
+n.add("Line", "2-3", bus0="Bus 2", bus1="Bus 3", x=12, r=0.2, s_nom=300)
+n.add("Line", "3-4", bus0="Bus 3", bus1="Bus 4", x=10, r=0.2, s_nom=250)
+
+# Add Generators
+n.add("Generator", "Gen 1", bus="Bus 1", p_set=200, control="Slack")
+n.add("Generator", "Gen 2", bus="Bus 2", p_set=200, q_set=50, control="PQ")
+n.add("Generator", "Gen 4", bus="Bus 4", p_set=150, control="PQ")
+
+# Add Loads
+n.add("Load", "Load 2", bus="Bus 2", p_set=150)
+n.add("Load", "Load 3", bus="Bus 3", p_set=250, q_set=100)
+
+# Generator parameters
+n.generators.loc["Gen 1", ["p_nom", "marginal_cost", "p_min_pu", "p_max_pu"]] = [400, 30, 0, 1]
+n.generators.loc["Gen 2", ["p_nom", "marginal_cost", "p_min_pu", "p_max_pu"]] = [300, 30, 0, 1]
+n.generators.loc["Gen 4", ["p_nom", "marginal_cost", "p_min_pu", "p_max_pu"]] = [300, 5, 0, 1]
+
+# Add HVDC Link
+n.add("Link", "Link 3-4", bus0="Bus 3", bus1="Bus 4",
+      p_set=-100, efficiency=0.95, p_nom=500)
+
+# Add Voltage Source Converters
+n.add("ControllableVSC", "VSC 1", bus="Bus 3", link="Link 3-4", side="bus0")
+n.add("ControllableVSC", "VSC 2", bus="Bus 4", link="Link 3-4", side="bus1")
+
+# Initial power flow
+snap = n.snapshots[0]
+n.pf()
+
+P = n.lines_t.p0.loc[snap]
+Q = n.lines_t.q0.loc[snap]
+S = np.hypot(P, Q)
+s_thermal = n.lines.s_nom * n.lines.s_max_pu
+
+loading_initial = 100 * S / s_thermal
+v_initial = n.buses_t.v_mag_pu.loc[snap]
+
+# VSC optimization
+from combined_control.VSCController import ControllerConfig, VSCController
+
+cfg = ControllerConfig(
+    angle_limit_deg=25,
+    max_line_loading=0.9,
+    S_rated=300,
+    n1_guard_enable=False
+)
+
+ctl = VSCController(n, config=cfg)
+ctl.run_mode(mode="combined")
+
+# Power flow after optimization
+n.pf()
+
+P1 = n.lines_t.p0.loc[snap]
+Q1 = n.lines_t.q0.loc[snap]
+S1 = np.hypot(P1, Q1)
+
+loading_optimal = 100 * S1 / s_thermal
+v_optimal = n.buses_t.v_mag_pu.loc[snap]
+
+# Plot results
+import matplotlib.pyplot as plt
+
+df_loadings = pd.DataFrame({
+    "Initial Loading [%]": loading_initial,
+    "Optimized Loading [%]": loading_optimal
+}).sort_values(by="Optimized Loading [%]", ascending=False)
+
+df_loadings.plot(kind="bar", figsize=(12, 7))
+plt.ylabel("Loading [% of s_nom]")
+plt.title("Line Loadings Before and After VSC Optimization")
+plt.grid(axis="y", linestyle=":")
+plt.tight_layout()
+plt.show()
+
+df_voltages = pd.DataFrame({
+    "Initial Voltages [p.u.]": v_initial,
+    "Optimized Voltages [p.u.]": v_optimal
+})
+
+df_voltages.plot(marker="o", figsize=(12, 7))
+plt.axhline(1.0, linestyle="--")
+plt.ylabel("Voltage Magnitude [p.u.]")
+plt.title("Voltage Profile Before and After VSC Optimization")
+plt.grid(axis="y", linestyle=":")
+plt.tight_layout()
+plt.show()
+```
 
 ### PyPSA is published under MIT license:
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
