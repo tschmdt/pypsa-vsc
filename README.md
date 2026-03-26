@@ -73,7 +73,7 @@ p_results, q_results = ctl.run_mode(mode="combined")
 
 ### Example 
 
-## PyPSA is published under MIT license:
+### PyPSA is published under MIT license:
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
 associated documentation files (the "Software"), to deal in the Software without restriction, including
 without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
@@ -89,7 +89,7 @@ EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-## Features od PyPSA
+### Features od PyPSA
 
 - **Economic Dispatch (ED):** Models short-term market-based dispatch including
 unit commitment, renewable availability, short-duration and seasonal storage
@@ -130,12 +130,12 @@ similar costs.
 - **Static Power Flow Analysis:** Computes both full non-linear and linearised
   load flows for meshed AC and DC grids using Newton-Raphson method.
 
-## Documentation
+### Documentation
 
 PyPSA has extensive [documentation](https://docs.pypsa.org) with tutorials, user guides, examples and an API reference.
 
 
-## Citing PyPSA
+### Citing PyPSA
 
 If you use PyPSA for your research, we would appreciate it if you would
 cite the following paper:
@@ -162,7 +162,7 @@ Please use the following BibTeX:
        doi = {10.5334/jors.188}
     }
 
-## Citing PyPSA-VSC
+### Citing PyPSA-VSC
 Please cite PyPSA additionally, when using PyPSA-VSC.
 
 https://doi.org/10.34726/hss.2026.134500
