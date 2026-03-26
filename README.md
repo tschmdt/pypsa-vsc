@@ -135,8 +135,7 @@ PyPSA has extensive [documentation](https://docs.pypsa.org) with tutorials, user
 
 ### Citing PyPSA
 
-If you use PyPSA for your research, we would appreciate it if you would
-cite the following paper:
+If you use PyPSA for your research, please cite the following paper:
 
 -   T. Brown, J. Hörsch, D. Schlachtberger, [PyPSA: Python for Power
     System Analysis](https://arxiv.org/abs/1707.09913), 2018, [Journal
