@@ -1,20 +1,45 @@
+[![Documentation Status](https://readthedocs.org/projects/pypsa/badge/?version=latest)](https://pypsa.readthedocs.io/en/latest/?badge=latest)
+[![License](https://img.shields.io/pypi/l/pypsa.svg)](LICENSE.txt)
+![python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-blue?style=flat-square)
+
+
 # PyPSA-VSC - Python for Power System Analysis with Voltage-Source Converter extension
 
 ### Functionality
-This PyPSA version extends the original implementation with additional functionalities for direct-current (link) power transmission. The converter technology of choice is the Voltage Source Converter (VSC). The VSC has unique features, most notably its ability to control active and reactive power almost independently.
-The VSC is modeled as an emulated component using the existing Link component and the newly created ControllableVSC component. Together, these allow an HVDC-VSC link (VHL) to be modeled.
-To effectively model a network with a VHL, several key considerations must be taken into account. The VHL is an emulated model that utilizes both the Link and the newly created ControllableVSC components. As users, we have multiple degrees of freedom to configure the VHL optimization. The complete set of attributes and functionalities can be found in the main document. The most critical attributes include:
+This PyPSA version extends the original implementation with additional functionalities for direct-current power transmission. The converter technology of choice is the Voltage Source Converter (VSC). The VSC has unique features, most notably its ability to control active and reactive power almost independently.
+The VSC is modeled as an emulated component using the existing Link component and the newly created ControllableVSC component. Together, they allow to model an HVDC-VSC-Link, referred to as VHL.
+To effectively model a network with a VHL, several key considerations must be taken into account. As a user, you have multiple degrees of freedom to configure the VHL optimization. The complete set of attributes and functionalities can be found in the main document. The most critical attributes include:
 
 - Power angle limit in degrees, with a default of 25.
 - Maximum line loading in p.u., with a default of 0.95.
 - Rated apparent power of the VSC in MVA, with a default of 400.
 
-### Activation
-By march 2026 the version has migrated to uv! Therefore after cloning the repo use:
-git clone <repo>
-cd repo
-git checkout migrate-to-uv
-in order be able to install all dependencies etc correct with uv.
+The PyPSA-VSC Version is an extension of PyPSA, therefore all original functionalities remain unchanged.
+
+PyPSA-VSC can be interpreted as an additional framework for modeling and analyzing VSC-based HVDC links. Although simplifications are applied, the VHL representation captures all relevant physical properties and operational constraints. In this formulation, bus0 is always defined as the master bus, providing two degrees of freedom: active power (P) and reactive power (Q).
+
+Building on this physical representation, PyPSA-VSC enables users to run an optimized operation mode of the VHL. The selection of bus0 (the sending or starting bus) is critical, as it is designated as the master bus; consequently, the optimization variables are determined at this bus. Bus1 is treated as the slave bus.
+
+The objective of the VHL operation optimization is to homogenize AC line loadings and smooth voltage profiles across the network. The optimizer takes the system-wide network state as input and determines the optimal active and reactive power setpoints of the link to achieve these goals.
+
+Active and reactive power control can be executed separately. By default (combined run mode), active power optimization is performed first. During this step, the available apparent power limit is restricted to $\frac{1}{\sqrt{2}} * S_{vsc}$, ensuring sufficient headroom for subsequent reactive power optimization.
+
+After determining the optimal active power setpoint, an AC power flow calculation is performed to accurately represent the network state. Based on these results, the remaining reactive power headroom is recalculated and imposed as a constraint for the subsequent reactive power optimization step. The process concludes with a final AC power flow.
+
+Internally, the optimization is implemented using linearized approximations.
+
+### Updates
+By march 2026 the version has migrated to uv! Hence, the main branch has beeing updated! Old instructions using conda are deprecated. Use uv instead. All dependencies are updated in pyproject.toml.
+
+### Installation using uv
+Using Bash:
+git clone https://github.com/tschmdt/pypsa-vsc.git
+cd pypsa-vsc
+uv sync
+uv sync --extra gurobipy (Note: A valid Gurobi license is required for optimization.)
+uv run python <path/to/script.py>
+optional: uv sync --extra dev
+Note: All dependencies as requirements are set and can be found in pyproject.toml. Using uv (sync) automatically creates a .venv and installs PyPSA-VSC in editable mode using the rquired settings.
 
 ### Usage 
 To set up a VHL in our model, we utilize the *ControllerConfig* class and the *VSCController* class, both found in the combined_control folder within *VSCController.py*.
@@ -44,205 +69,73 @@ ctl = VSCController(n, config= cfg)
 p_results, q_results = ctl.run_mode(mode="combined")
 ```
 
-## In the following the official PyPSA informations can be found.
+### Example 
+
+### PyPSA is published under MIT license:
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### Features of PyPSA
+
+- **Economic Dispatch (ED):** Models short-term market-based dispatch including
+unit commitment, renewable availability, short-duration and seasonal storage
+including hydro reservoirs with inflow and spillage dynamics, elastic demands,
+load shedding and conversion between energy carriers, using either perfect
+operational foresight or rolling horizon time resolution.
+
+- **Linear Optimal Power Flow (LOPF):** Extends economic dispatch to determine
+the least-cost dispatch while respecting network constraints in meshed AC-DC
+networks, using a linearised representation of power flow (KVL, KCL) with
+optional loss approximations.
+
+- **Security-Constrained LOPF (SCLOPF):** Extends LOPF by accounting for line
+outage contingencies to ensure system reliability under $N-1$ conditions.
+
+- **Capacity Expansion Planning (CEP):** Supports least-cost
+long-term system planning with investment decisions for generation, storage,
+conversion, and transmission infrastructure. Handles both single and multiple
+investment periods. Continuous and discrete investments are supported.
+
+- **Pathway Planning:** Supports co-optimisation of multiple investment periods to
+plan energy system transitions over time with perfect planning foresight.
+
+- **Stochastic Optimisation:** Implements two-stage stochastic programming
+framework with scenario-weighted uncertain inputs, with investments as
+first-stage decisions and dispatch as recourse decisions.
+
+- **Modelling-to-Generate-Alternatives (MGA):** Explores near-optimal decision
+spaces to provide insight into the range of feasible system configurations with
+similar costs.
+
+- **Sector-Coupling:** Modelling integrated energy systems with multiple energy
+  carriers (electricity, heat, hydrogen, etc.) and conversion between them.
+  Flexible representation of technologies such as heat pumps, electrolysers,
+  battery electric vehicles (BEVs), direct air capture (DAC), and synthetic
+  fuels production.
+
+- **Static Power Flow Analysis:** Computes both full non-linear and linearised
+  load flows for meshed AC and DC grids using Newton-Raphson method.
+
+### Documentation
+
+PyPSA has extensive [documentation](https://docs.pypsa.org) with tutorials, user guides, examples and an API reference.
 
 
+### Citing PyPSA
 
-
-
-
-
-
-# PyPSA - Python for Power System Analysis
-
-
-[![PyPI version](https://img.shields.io/pypi/v/pypsa.svg)](https://pypi.python.org/pypi/pypsa)
-[![Conda version](https://img.shields.io/conda/vn/conda-forge/pypsa.svg)](https://anaconda.org/conda-forge/pypsa)
-![Python Version from PEP 621 TOML](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2FPyPSA%2FPyPSA%2Fmaster%2Fpyproject.toml)
-[![Tests](https://github.com/PyPSA/PyPSA/actions/workflows/test.yml/badge.svg)](https://github.com/PyPSA/PyPSA/actions/workflows/test.yml)
-[![Documentation Status](https://readthedocs.org/projects/pypsa/badge/?version=latest)](https://pypsa.readthedocs.io/en/latest/?badge=latest)
-[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/PyPSA/PyPSA/master.svg)](https://results.pre-commit.ci/latest/github/PyPSA/PyPSA/master)
-[![Code coverage](https://codecov.io/gh/PyPSA/PyPSA/branch/master/graph/badge.svg?token=kCpwJiV6Jr)](https://codecov.io/gh/PyPSA/PyPSA)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![License](https://img.shields.io/pypi/l/pypsa.svg)](LICENSE.txt)
-[![Zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.3946412.svg)](https://doi.org/10.5281/zenodo.3946412)
-[![Discord](https://img.shields.io/discord/911692131440148490?logo=discord)](https://discord.gg/AnuJBk23FU)
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
-
-PyPSA stands for "Python for Power System Analysis". It is pronounced
-"pipes-ah".
-
-PyPSA is an open source toolbox for simulating and optimising modern power and
-energy systems that include features such as conventional generators with unit
-commitment, variable wind and solar generation, storage units, coupling to other
-energy sectors, and mixed alternating and direct current networks. PyPSA is
-designed to scale well with large networks and long time series.
-
-This project is maintained by the [Department of Digital Transformation in
-Energy Systems](https://www.tu.berlin/ensys) at the [Technical University of
-Berlin](https://www.tu.berlin). Previous versions were developed by the Energy
-System Modelling group at the [Institute for Automation and Applied
-Informatics](https://www.iai.kit.edu/english/index.php) at the [Karlsruhe
-Institute of Technology](http://www.kit.edu/english/index.php) funded by the
-[Helmholtz Association](https://www.helmholtz.de/en/), and by the [Renewable
-Energy
-Group](https://fias.uni-frankfurt.de/physics/schramm/renewable-energy-system-and-network-analysis/)
-at [FIAS](https://fias.uni-frankfurt.de/en/) to carry out simulations for the
-[CoNDyNet project](https://fias.institute/en/projects/condynet/), financed by the [German Federal
-Ministry for Education and Research (BMBF)](https://www.bmbf.de/bmbf/en/)
-as part of the [Stromnetze Research
-Initiative](http://forschung-stromnetze.info/projekte/grundlagen-und-konzepte-fuer-effiziente-dezentrale-stromnetze/).
-
-## Functionality
-
-PyPSA can calculate:
-
--   static power flow (using both the full non-linear network equations and the
-    linearised network equations)
--   linear optimal power flow (least-cost optimisation of power plant and
-    storage dispatch within network constraints, using the linear network
-    equations, over several snapshots)
--   security-constrained linear optimal power flow
--   total electricity/energy system least-cost investment optimisation (using
-    linear network equations, over several snapshots and investment periods
-    simultaneously for optimisation of generation and storage dispatch and
-    investment in the capacities of generation, storage, transmission and other
-    infrastructure)
-
-It has models for:
-
--   meshed multiply-connected AC and DC networks, with controllable converters
-    between AC and DC networks
--   standard types for lines and transformers following the implementation in
-    [pandapower](https://www.pandapower.org/)
--   conventional dispatchable generators and links with unit commitment
--   generators with time-varying power availability, such as wind and solar
-    generators
--   storage units with efficiency losses
--   simple hydroelectricity with inflow and spillage
--   coupling with other energy carriers (e.g. resistive Power-to-Heat (P2H),
-    Power-to-Gas (P2G), battery electric vehicles (BEVs), Fischer-Tropsch,
-    direct air capture (DAC))
--   basic components out of which more complicated assets can be built, such as
-    Combined Heat and Power (CHP) units and heat pumps.
-
-## Documentation
-
-* [Documentation](https://pypsa.readthedocs.io/en/latest/index.html)
-
-    * [Quick start](https://pypsa.readthedocs.io/en/latest/quick_start.html)
-
-    * [Examples](https://pypsa.readthedocs.io/en/latest/examples-index/lopf.html)
-
-    * [Known users of PyPSA](https://pypsa.readthedocs.io/en/latest/users.html)
-
-## Installation
-
-pip:
-
-```pip install pypsa```
-
-conda/mamba:
-
-```conda install -c conda-forge pypsa```
-
-Additionally, install a solver (see [here](https://pypsa.readthedocs.io/en/latest/getting-started/installation.html#getting-a-solver)).
-
-## Usage
-
-```py
-import pypsa
-
-# create a new network
-n = pypsa.Network()
-n.add("Bus", "mybus")
-n.add("Load", "myload", bus="mybus", p_set=100)
-n.add("Generator", "mygen", bus="mybus", p_nom=100, marginal_cost=20)
-
-# load an example network
-n = pypsa.examples.ac_dc_meshed()
-
-# run the optimisation
-n.optimize()
-
-# plot results
-n.generators_t.p.plot()
-n.plot()
-
-# get statistics
-n.statistics()
-n.statistics.energy_balance()
-```
-
-There are [more extensive
-examples](https://pypsa.readthedocs.io/en/latest/examples-basic.html) available
-as [Jupyter notebooks](https://jupyter.org/). They are also available as Python scripts in
-[examples/notebooks/](examples/notebooks/) directory.
-
-## Screenshots
-
-[PyPSA-Eur](https://github.com/PyPSA/pypsa-eur) optimising capacities of
-generation, storage and transmission lines (9% line volume expansion allowed)
-for a 95% reduction in CO2 emissions in Europe compared to 1990 levels
-
-![image](doc/img/elec_s_256_lv1.09_Co2L-3H.png)
-
-[SciGRID model](https://power.scigrid.de/) simulating the German power system
-for 2015.
-
-![image](doc/img/stacked-gen_and_storage-scigrid.png)
-
-![image](doc/img/lmp_and_line-loading.png)
-
-## Dependencies
-
-PyPSA is written and tested to be compatible with Python 3.10 and above.
-The last release supporting Python 2.7 was PyPSA 0.15.0.
-
-It leans heavily on the following Python packages:
-
--   [pandas](http://pandas.pydata.org/) for storing data about
-    components and time series
--   [numpy](http://www.numpy.org/) and [scipy](http://scipy.org/) for
-    calculations, such as linear algebra and sparse matrix calculations
--   [networkx](https://networkx.org/) for some network
-    calculations
--   [matplotlib](https://matplotlib.org/) for static plotting
--   [linopy](https://github.com/PyPSA/linopy) for preparing optimisation problems
-    (currently only linear and mixed integer linear optimisation)
--   [cartopy](https://scitools.org.uk/cartopy) for plotting the
-    baselayer map
--   [pytest](https://docs.pytest.org/) for unit testing
--   [logging](https://docs.python.org/3/library/logging.html) for
-    managing messages
-
-Find the full list of dependencies in the 
-[dependency graph](https://github.com/PyPSA/PyPSA/network/dependencies).
-
-The optimisation uses interface libraries like `linopy` which are independent of
-the preferred solver. You can use e.g. one of the free solvers
-[HiGHS](https://highs.dev/), [GLPK](https://www.gnu.org/software/glpk/) and
-[CLP/CBC](https://github.com/coin-or/Cbc/) or the commercial solver
-[Gurobi](http://www.gurobi.com/) for which free academic licenses are available.
-
-## Contributing and Support
-
-We strongly welcome anyone interested in contributing to this project. If you have any ideas, suggestions or encounter problems, feel invited to file issues or make pull requests on GitHub.
-
--   To **discuss** with other PyPSA users, organise projects, share news, and get in touch with the community you can use the [Discord server](https://discord.gg/AnuJBk23FU).
--   For **bugs and feature requests**, please use the [PyPSA Github Issues page](https://github.com/PyPSA/PyPSA/issues).
--   For **troubleshooting**, please check the [troubleshooting](https://pypsa.readthedocs.io/en/latest/troubleshooting.html) in the documentation.
-
-Detailed guidelines can be found in the [Contributing](https://pypsa.readthedocs.io/en/latest/contributing.html) section of our documentation.
-
-## Code of Conduct
-
-Please respect our [code of conduct](CODE_OF_CONDUCT.md).
-
-## Citing PyPSA
-
-If you use PyPSA for your research, we would appreciate it if you would
-cite the following paper:
+If you use PyPSA for your research, please cite the following paper:
 
 -   T. Brown, J. Hörsch, D. Schlachtberger, [PyPSA: Python for Power
     System Analysis](https://arxiv.org/abs/1707.09913), 2018, [Journal
@@ -266,21 +159,20 @@ Please use the following BibTeX:
        doi = {10.5334/jors.188}
     }
 
-If you want to cite a specific PyPSA version, each release of PyPSA is
-stored on [Zenodo](https://zenodo.org/) with a release-specific DOI. The
-release-specific DOIs can be found linked from the overall PyPSA Zenodo
-DOI for Version 0.17.1 and onwards:
+### Citing PyPSA-VSC
+Please cite PyPSA additionally, when using PyPSA-VSC.
 
-[![image](https://zenodo.org/badge/DOI/10.5281/zenodo.3946412.svg)](https://doi.org/10.5281/zenodo.3946412)
-
-or from the overall PyPSA Zenodo DOI for Versions up to 0.17.0:
-
-[![image](https://zenodo.org/badge/DOI/10.5281/zenodo.786605.svg)](https://doi.org/10.5281/zenodo.786605)
-
-# Licence
-
-Copyright 2015-2025 [PyPSA
-Developers](https://pypsa.readthedocs.io/en/latest/developers.html)
+    @article{schmidt2026conceptual,
+      title={Conceptual Design and Optimization of Hybrid AC/DC Power Systems},
+      author={Schmidt, Timo},
+      year={2026},
+      institution={Technische Universität Wien},
+      url={http://hdl.handle.net/20.500.12708/226579},
+      doi={https://doi.org/10.34726/hss.2026.134500}
+    }
 
 PyPSA is licensed under the open source [MIT
 License](https://github.com/PyPSA/PyPSA/blob/master/LICENSE.txt).
+Copyright 2015-2025 [PyPSA
+Developers](https://pypsa.readthedocs.io/en/latest/developers.html)
+
