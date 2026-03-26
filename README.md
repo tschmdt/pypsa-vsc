@@ -166,7 +166,8 @@ Please use the following BibTeX:
 Please cite PyPSA additionally, when using PyPSA-VSC.
 
 https://doi.org/10.34726/hss.2026.134500
-@thesis{schmidt2026conceptual,
+
+@article{schmidt2026conceptual,
   title={Conceptual Design and Optimization of Hybrid AC/DC Power Systems},
   author={Schmidt, Timo},
   year={2026},
