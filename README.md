@@ -28,8 +28,6 @@ After determining the optimal active power setpoint, an AC power flow calculatio
 
 Internally, the optimization is implemented using linearized approximations.
 
-
-
 ### Updates
 By march 2026 the version has migrated to uv! Hence, the main branch has beeing updated! Old instructions using conda are deprecated. Use uv instead. All dependencies are updated in pyproject.toml.
 
@@ -89,7 +87,7 @@ EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-### Features od PyPSA
+### Features of PyPSA
 
 - **Economic Dispatch (ED):** Models short-term market-based dispatch including
 unit commitment, renewable availability, short-duration and seasonal storage
@@ -167,18 +165,17 @@ Please cite PyPSA additionally, when using PyPSA-VSC.
 
 https://doi.org/10.34726/hss.2026.134500
 
-@article{schmidt2026conceptual,
-  title={Conceptual Design and Optimization of Hybrid AC/DC Power Systems},
-  author={Schmidt, Timo},
-  year={2026},
-  institution={Technische Universit{\"a}t Wien},
-  year={2026},
-  url={http://hdl.handle.net/20.500.12708/226579}
-}
-
-
-Copyright 2015-2025 [PyPSA
-Developers](https://pypsa.readthedocs.io/en/latest/developers.html)
+    @article{schmidt2026conceptual,
+      title={Conceptual Design and Optimization of Hybrid AC/DC Power Systems},
+      author={Schmidt, Timo},
+      year={2026},
+      institution={Technische Universit{\"a}t Wien},
+      year={2026},
+      url={http://hdl.handle.net/20.500.12708/226579}
+    }
 
 PyPSA is licensed under the open source [MIT
 License](https://github.com/PyPSA/PyPSA/blob/master/LICENSE.txt).
+Copyright 2015-2025 [PyPSA
+Developers](https://pypsa.readthedocs.io/en/latest/developers.html)
+
