@@ -168,7 +168,7 @@ https://doi.org/10.34726/hss.2026.134500
       title={Conceptual Design and Optimization of Hybrid AC/DC Power Systems},
       author={Schmidt, Timo},
       year={2026},
-      institution={Technische Universit{\"a}t Wien},
+      institution={Technische Universität Wien},
       year={2026},
       url={http://hdl.handle.net/20.500.12708/226579}
     }
