@@ -162,15 +162,13 @@ Please use the following BibTeX:
 ### Citing PyPSA-VSC
 Please cite PyPSA additionally, when using PyPSA-VSC.
 
-https://doi.org/10.34726/hss.2026.134500
-
     @article{schmidt2026conceptual,
       title={Conceptual Design and Optimization of Hybrid AC/DC Power Systems},
       author={Schmidt, Timo},
       year={2026},
       institution={Technische Universität Wien},
-      year={2026},
-      url={http://hdl.handle.net/20.500.12708/226579}
+      url={http://hdl.handle.net/20.500.12708/226579},
+      doi={https://doi.org/10.34726/hss.2026.134500}
     }
 
 PyPSA is licensed under the open source [MIT
