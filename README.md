@@ -32,18 +32,27 @@ Internally, the optimization is implemented using linearized approximations.
 By march 2026 the version has migrated to uv! Hence, the main branch has beeing updated! Old instructions using conda are deprecated. Use uv instead. All dependencies are updated in pyproject.toml.
 
 ### Installation using uv
-Using Bash:
+uv, a fast Python package and project manager is used for this installation. uv combines and replaces replace pip, pip-tools, pipx, poetry, pyenv, twine, virtualenv, and more. For the installation refer to [uv installation](https://docs.astral.sh/uv/#installation)
+
+using Bash:
 ```py
+uv python install 3.13   
 git clone https://github.com/tschmdt/pypsa-vsc.git
 cd pypsa-vsc
-uv sync
-uv sync --extra gurobipy 
+uv python pin 3.13  
+uv sync --extra gurobipy
 ```
-(Note: A valid Gurobi license is required for optimization.)
+Note: A valid Gurobi license is required for optimization. For installation instructions refer to [gurobi installation](https://www.gurobi.com/downloads/gurobi-software/) Furthermore, a licence key is required:
+```py
+grbgetkey <YOUR-LICENSE-KEY>
+```
+If developer functions are required
+```py
+uv sync --extra dev
+```
 ```py
 uv run python <path/to/script.py>
-uv sync --extra dev 
-```
+```py
 Note: All dependencies as requirements are set and can be found in pyproject.toml. Using uv (sync) automatically creates a .venv and installs PyPSA-VSC in editable mode using the rquired settings.
 
 ### Usage 
