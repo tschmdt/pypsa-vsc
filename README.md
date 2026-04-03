@@ -46,7 +46,9 @@ Note: A valid Gurobi license is required for optimization. For installation inst
 ```py
 grbgetkey <YOUR-LICENSE-KEY>
 ```
+```py
 If developer functions are required
+```
 ```py
 uv sync --extra dev
 ```
