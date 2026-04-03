@@ -33,12 +33,17 @@ By march 2026 the version has migrated to uv! Hence, the main branch has beeing 
 
 ### Installation using uv
 Using Bash:
+'''py
 git clone https://github.com/tschmdt/pypsa-vsc.git
 cd pypsa-vsc
 uv sync
-uv sync --extra gurobipy (Note: A valid Gurobi license is required for optimization.)
+uv sync --extra gurobipy 
+''py
+(Note: A valid Gurobi license is required for optimization.)
+'''py
 uv run python <path/to/script.py>
-optional: uv sync --extra dev
+uv sync --extra dev 
+'''py
 Note: All dependencies as requirements are set and can be found in pyproject.toml. Using uv (sync) automatically creates a .venv and installs PyPSA-VSC in editable mode using the rquired settings.
 
 ### Usage 
