@@ -52,7 +52,7 @@ uv sync --extra dev
 ```
 ```py
 uv run python <path/to/script.py>
-```py
+```
 Note: All dependencies as requirements are set and can be found in pyproject.toml. Using uv (sync) automatically creates a .venv and installs PyPSA-VSC in editable mode using the rquired settings.
 
 ### Usage 
