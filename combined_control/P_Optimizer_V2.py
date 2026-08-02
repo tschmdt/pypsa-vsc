@@ -1,6 +1,48 @@
+import sys
+
 import pyomo.environ as pyo
 import numpy as np
 import pandas as pd
+
+
+def _solve_scip_direct(model, *, tee: bool = False, timelimit: float | None = 60.0):
+    """Solve with Pyomo's scip_direct, avoiding a Windows FD-capture deadlock.
+
+    Pyomo 6.10 wraps ``scip_model.optimize()`` in
+    ``capture_output(..., capture_fd=True)``. On Windows that redirect can hang
+    forever even for tiny models. On Windows we therefore call into the SCIP
+    model directly and only use Pyomo for translation / result mapping.
+    """
+    solver = pyo.SolverFactory("scip_direct")
+    if not solver.available(exception_flag=False):
+        raise RuntimeError(
+            "SCIP solver is not available. Install pyscipopt into the environment "
+            "(e.g. `uv add pyscipopt` / `uv sync`) so Pyomo's scip_direct interface can load it."
+        )
+
+    solve_kwargs = {"tee": tee}
+    if timelimit is not None:
+        solve_kwargs["timelimit"] = timelimit
+
+    if sys.platform != "win32":
+        return solver.solve(model, **solve_kwargs)
+
+    from pyomo.common.timing import HierarchicalTimer
+
+    config = solver.config()
+    config.timer = HierarchicalTimer()
+    if timelimit is not None:
+        config.time_limit = timelimit
+
+    scip_model, loader, has_obj = solver._create_solver_model(model, config)
+    scip_model.hideOutput(quiet=not tee)
+    if timelimit is not None:
+        scip_model.setRealParam("limits/time", float(timelimit))
+
+    scip_model.optimize()
+    results = solver._populate_results(scip_model, loader, has_obj, config)
+    legacy_results, legacy_soln = solver._map_results(model, results)
+    return solver._solution_handler(True, model, results, legacy_results, legacy_soln)
 
 
 def link_optimization(
@@ -338,14 +380,9 @@ def link_optimization(
         #         "InfUnbdInfo": 1,
         #     },
         # )
-        # SCIP via pyscipopt (Pyomo direct interface; open-source MIQP-capable):
-        solver = pyo.SolverFactory("scip_direct")
-        if not solver.available(exception_flag=False):
-            raise RuntimeError(
-                "SCIP solver is not available. Install pyscipopt into the environment "
-                "(e.g. `uv add pyscipopt` / `uv sync`) so Pyomo's scip_direct interface can load it."
-            )
-        result = solver.solve(model, tee=False)
+        # SCIP via pyscipopt (Pyomo direct interface; open-source MIQP-capable).
+        # Pyomo already epigraph-reformulates the quadratic objective for SCIP.
+        result = _solve_scip_direct(model, tee=False, timelimit=60.0)
 
         from math import isfinite
         from pyomo.opt import TerminationCondition
