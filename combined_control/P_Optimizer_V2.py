@@ -328,15 +328,24 @@ def link_optimization(
         model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
         # 9. Solver + debug (general)
-        solver = pyo.SolverFactory("gurobi")
-        result = solver.solve(
-            model,
-            tee=False,
-            options={
-                "DualReductions": 0,  # disambiguate infeasible vs unbounded
-                "InfUnbdInfo": 1,
-            },
-        )
+        # Gurobi (commercial / academic license):
+        # solver = pyo.SolverFactory("gurobi")
+        # result = solver.solve(
+        #     model,
+        #     tee=False,
+        #     options={
+        #         "DualReductions": 0,  # disambiguate infeasible vs unbounded
+        #         "InfUnbdInfo": 1,
+        #     },
+        # )
+        # SCIP via pyscipopt (Pyomo direct interface; open-source MIQP-capable):
+        solver = pyo.SolverFactory("scip_direct")
+        if not solver.available():
+            raise RuntimeError(
+                "SCIP solver is not available. Install pyscipopt into the environment "
+                "(e.g. `uv add pyscipopt` / `uv sync`) so Pyomo's scip_direct interface can load it."
+            )
+        result = solver.solve(model, tee=False)
 
         from math import isfinite
         from pyomo.opt import TerminationCondition
@@ -407,30 +416,32 @@ def link_optimization(
             log_infeasible_constraints(model, tol=1e-8, log_expression=True)
 
             # Also request a minimal conflicting set (IIS) from Gurobi
-            try:
-                opt_p = pyo.SolverFactory("gurobi_persistent")
-                opt_p.set_instance(model, symbolic_solver_labels=True)  # readable names
-                g = opt_p._solver_model
-                g.computeIIS()
-
-                # Print IIS contents to console
-                iis_constr = [c.ConstrName for c in g.getConstrs() if c.IISConstr]
-                print("\n=== IIS constraints ===")
-                for name in iis_constr:
-                    print("  ", name)
-
-                print("\n=== IIS variable bounds ===")
-                for v in g.getVars():
-                    if getattr(v, "IISLB", False):
-                        print(f"  {v.VarName}: lower bound participates (LB={v.LB})")
-                    if getattr(v, "IISUB", False):
-                        print(f"  {v.VarName}: upper bound participates (UB={v.UB})")
-
-                # Save IIS as a tiny LP containing only the conflict
-                g.write("model.ilp")
-                print("Wrote IIS mini-model to model.ilp")
-            except Exception as e:
-                print("IIS not available:", e)
+            # (Gurobi-only diagnostic; disabled while using SCIP)
+            # try:
+            #     opt_p = pyo.SolverFactory("gurobi_persistent")
+            #     opt_p.set_instance(model, symbolic_solver_labels=True)  # readable names
+            #     g = opt_p._solver_model
+            #     g.computeIIS()
+            #
+            #     # Print IIS contents to console
+            #     iis_constr = [c.ConstrName for c in g.getConstrs() if c.IISConstr]
+            #     print("\n=== IIS constraints ===")
+            #     for name in iis_constr:
+            #         print("  ", name)
+            #
+            #     print("\n=== IIS variable bounds ===")
+            #     for v in g.getVars():
+            #         if getattr(v, "IISLB", False):
+            #             print(f"  {v.VarName}: lower bound participates (LB={v.LB})")
+            #         if getattr(v, "IISUB", False):
+            #             print(f"  {v.VarName}: upper bound participates (UB={v.UB})")
+            #
+            #     # Save IIS as a tiny LP containing only the conflict
+            #     g.write("model.ilp")
+            #     print("Wrote IIS mini-model to model.ilp")
+            # except Exception as e:
+            #     print("IIS not available:", e)
+            print("IIS diagnostic skipped (requires Gurobi persistent interface).")
 
             # Restore guessed values so you don't carry them forward
             _unseed_vars(_seeded)

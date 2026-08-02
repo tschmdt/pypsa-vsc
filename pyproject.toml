@@ -44,6 +44,7 @@ dependencies = [
     "highspy",
     "pyomo>=6.10.0",
     "lxml>=6.0.2",
+    "pyscipopt>=6.2.1",
 ]
 
 [project.urls]
