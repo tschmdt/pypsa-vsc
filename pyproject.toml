@@ -89,7 +89,7 @@ docs = [
 version_scheme = "no-guess-dev"
 
 [tool.setuptools.packages.find]
-include = ["pypsa"]
+include = ["pypsa", "combined_control"]
 
 [tool.setuptools.package-data]
 "pypsa" = ["py.typed"]

@@ -340,7 +340,7 @@ def link_optimization(
         # )
         # SCIP via pyscipopt (Pyomo direct interface; open-source MIQP-capable):
         solver = pyo.SolverFactory("scip_direct")
-        if not solver.available():
+        if not solver.available(exception_flag=False):
             raise RuntimeError(
                 "SCIP solver is not available. Install pyscipopt into the environment "
                 "(e.g. `uv add pyscipopt` / `uv sync`) so Pyomo's scip_direct interface can load it."
