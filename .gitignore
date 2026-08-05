@@ -81,3 +81,6 @@ envs/
 # Universeller Ergebnisordner
 /results/
 /data/
+
+# Interne Entwurfs-/Paper-Notizen (lokal behalten, nicht im Repository)
+N1_GUARD_DESIGN.md
