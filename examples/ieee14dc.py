@@ -330,17 +330,29 @@ n.add(
 # =============================================================================
 
 snap = n.snapshots[0]
+line_limits = n.lines.s_nom * n.lines.s_max_pu
+
+# Reset setpoints so a partial re-run does not treat a previous opt/guard
+# state as the "initial" operating point.
+n.links["p_set"] = 0.0
+if not n.links_t.p_set.empty:
+    n.links_t.p_set.loc[:, :] = 0.0
+if not n.controllable_vscs.empty:
+    n.controllable_vscs["q_set"] = 0.0
+    if not n.controllable_vscs_t.q_set.empty:
+        n.controllable_vscs_t.q_set.loc[:, :] = 0.0
 
 n.pf()
 
-P_initial = n.lines_t.p0.loc[snap]
-Q_initial = n.lines_t.q0.loc[snap]
-S_initial = np.hypot(P_initial, Q_initial)
-
-line_limits = n.lines.s_nom * n.lines.s_max_pu
-loading_initial = 100 * S_initial / line_limits
-
-v_initial = n.buses_t.v_mag_pu.loc[snap]
+loading_initial = 100.0 * np.hypot(
+    n.lines_t.p0.loc[snap], n.lines_t.q0.loc[snap]
+) / line_limits
+v_initial = n.buses_t.v_mag_pu.loc[snap].copy()
+p_set_initial = (
+    n.links_t.p_set.loc[snap].astype(float).copy()
+    if not n.links_t.p_set.empty
+    else n.links["p_set"].astype(float).copy()
+)
 
 
 # =============================================================================
@@ -351,90 +363,154 @@ cfg = ControllerConfig(
     angle_limit_deg=25,
     max_line_loading=0.90,
     S_rated=P_NOM_LINK,
-    n1_guard_enable=False
+    n1_guard_enable=True,  # set False to skip preventive guard
 )
 
 controller = VSCController(n, config=cfg)
+
+# Capture AC / setpoint stages for both guard=False and guard=True.
+stage = {}
+
+
+def _capture_stage(tag: str) -> None:
+    stage[f"p_set_{tag}"] = n.links_t.p_set.loc[snap].astype(float).copy()
+    stage[f"loading_{tag}"] = 100.0 * np.hypot(
+        n.lines_t.p0.loc[snap], n.lines_t.q0.loc[snap]
+    ) / line_limits
+    stage[f"v_{tag}"] = n.buses_t.v_mag_pu.loc[snap].copy()
+
+
+_enforce_n1_guard = controller.enforce_n1_guard
+_run_p_control = controller.run_p_control
+
+
+def _enforce_n1_guard_with_capture(snapshot):
+    # After P-opt, before guard
+    n.pf()
+    _capture_stage("opt")
+    ok = _enforce_n1_guard(snapshot)
+    # After preventive guard
+    n.pf()
+    _capture_stage("guard")
+    stage["dP_corrective"] = stage["p_set_guard"] - stage["p_set_opt"]
+    return ok
+
+
+def _run_p_control_with_capture(**kwargs):
+    result = _run_p_control(**kwargs)
+    if not cfg.n1_guard_enable:
+        # link_optimization already ran a final pf when guard_active=False
+        _capture_stage("opt")
+        stage["p_set_guard"] = stage["p_set_opt"].copy()
+        stage["loading_guard"] = stage["loading_opt"].copy()
+        stage["v_guard"] = stage["v_opt"].copy()
+        stage["dP_corrective"] = pd.Series(0.0, index=n.links.index)
+    return result
+
+
+controller.enforce_n1_guard = _enforce_n1_guard_with_capture
+controller.run_p_control = _run_p_control_with_capture
 controller.run_mode(mode="combined")
 
 
 # =============================================================================
-# 10. Power flow after optimization
+# 10. Final state after full combined control (P + guard + Q)
 # =============================================================================
 
 n.pf()
-
-P_optimal = n.lines_t.p0.loc[snap]
-Q_optimal = n.lines_t.q0.loc[snap]
-S_optimal = np.hypot(P_optimal, Q_optimal)
-
-loading_optimal = 100 * S_optimal / line_limits
-v_optimal = n.buses_t.v_mag_pu.loc[snap]
+_capture_stage("final")
 
 
 # =============================================================================
-# 11. Results
+# 11. Comparison: initial / after P-opt / after guard (+ final after Q)
 # =============================================================================
+
+loading_opt = stage["loading_opt"]
+loading_guard = stage["loading_guard"]
+loading_final = stage["loading_final"]
+v_opt = stage["v_opt"]
+v_guard = stage["v_guard"]
+v_final = stage["v_final"]
+p_set_opt = stage["p_set_opt"]
+p_set_guard = stage["p_set_guard"]
+dP_corrective = stage.get("dP_corrective", pd.Series(0.0, index=n.links.index))
 
 df_loadings = pd.DataFrame(
     {
-        "Initial Loading [%]": loading_initial,
-        "Optimized Loading [%]": loading_optimal
+        "Initial [%]": loading_initial,
+        "After P-opt [%]": loading_opt,
+        "After guard [%]": loading_guard,
+        "Final (P+Q) [%]": loading_final,
     }
-).sort_values(
-    by="Optimized Loading [%]",
-    ascending=False
+).sort_values(by="After P-opt [%]", ascending=False)
+
+df_voltages = pd.DataFrame(
+    {
+        "Initial [p.u.]": v_initial,
+        "After P-opt [p.u.]": v_opt,
+        "After guard [p.u.]": v_guard,
+        "Final (P+Q) [p.u.]": v_final,
+    }
 )
 
-print("\nLine loadings:")
+df_link_setpoints = pd.DataFrame(
+    {
+        "p_set initial [MW]": p_set_initial.reindex(n.links.index),
+        "p_set opt [MW]": p_set_opt,
+        "dP corrective [MW]": dP_corrective,
+        "p_set after guard [MW]": p_set_guard,
+        "p0 final [MW]": n.links_t.p0.loc[snap],
+    }
+)
+
+print(f"\nGuard enabled: {cfg.n1_guard_enable}")
+print("\n=== Line loadings: initial / P-opt / guard / final ===")
 print(df_loadings.round(2))
 
-print("\nOptimized link power:")
-print(n.links_t.p0.loc[snap].round(2))
-
-print("\nBus voltages:")
+print("\n=== Link / VSC active-power setpoints ===")
+print(df_link_setpoints.round(3))
 print(
-    pd.DataFrame(
-        {
-            "Initial voltage [p.u.]": v_initial,
-            "Optimized voltage [p.u.]": v_optimal
-        }
-    ).round(4)
+    f"\nCorrective step size |dP| max = {float(dP_corrective.abs().max()):.3f} MW, "
+    f"sum |dP| = {float(dP_corrective.abs().sum()):.3f} MW"
 )
+
+print("\n=== VSC reactive setpoints (after Q-opt) ===")
+print(
+    n.controllable_vscs[["bus", "link", "side", "q_set", "q_min", "q_max"]].round(3)
+)
+
+print("\n=== Bus voltages: initial / P-opt / guard / final ===")
+print(df_voltages.round(4))
 
 
 # =============================================================================
 # 12. Result plots
 # =============================================================================
 
-df_loadings.plot(
-    kind="bar",
-    figsize=(13, 7)
-)
-
+load_cols = ["Initial [%]", "After P-opt [%]"]
+if cfg.n1_guard_enable:
+    load_cols.append("After guard [%]")
+df_loadings[load_cols].plot(kind="bar", figsize=(13, 7))
 plt.axhline(100, linestyle="--")
 plt.ylabel("Loading [% of s_nom]")
-plt.title("Line Loadings Before and After VSC Optimization")
+plt.title(
+    "Line Loadings: Initial / After P-opt"
+    + (" / After Guard" if cfg.n1_guard_enable else " (guard off)")
+)
 plt.grid(axis="y", linestyle=":")
 plt.tight_layout()
 plt.show()
 
-
-df_voltages = pd.DataFrame(
-    {
-        "Initial Voltages [p.u.]": v_initial,
-        "Optimized Voltages [p.u.]": v_optimal
-    }
-)
-
-df_voltages.plot(
-    marker="o",
-    figsize=(12, 7)
-)
-
+v_cols = ["Initial [p.u.]", "After P-opt [p.u.]"]
+if cfg.n1_guard_enable:
+    v_cols.append("After guard [p.u.]")
+df_voltages[v_cols].plot(marker="o", figsize=(12, 7))
 plt.axhline(1.0, linestyle="--")
 plt.ylabel("Voltage Magnitude [p.u.]")
-plt.title("Voltage Profile Before and After VSC Optimization")
+plt.title(
+    "Voltage Profile: Initial / After P-opt"
+    + (" / After Guard" if cfg.n1_guard_enable else " (guard off)")
+)
 plt.grid(axis="y", linestyle=":")
 plt.tight_layout()
 plt.show()
