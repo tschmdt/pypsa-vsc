@@ -1,0 +1,6 @@
+name,bus,p_set,q_set
+Load 2,Bus 2,285.0,200.0
+Load 3,Bus 3,325.0,244.0
+Load 4,Bus 4,326.0,244.0
+Load 5,Bus 5,103.0,62.0
+Load 6,Bus 6,435.0,296.0

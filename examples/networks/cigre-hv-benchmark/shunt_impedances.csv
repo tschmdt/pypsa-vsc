@@ -1,0 +1,4 @@
+name,bus,b,v_nom,active
+Shunt 4,Bus 4,0.0033,220.0,True
+Shunt 5,Bus 5,0.00165,220.0,True
+Shunt 6,Bus 6,0.0033,220.0,True

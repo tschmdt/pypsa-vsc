@@ -1,0 +1,5 @@
+name,bus,control,p_set,q_set,,build_year,min_up_time,min_down_time,up_time_before,down_time_before,active
+Generator 9,Bus 9,Slack,1000,,,0,0,0,1,0,True
+Generator 11,Bus 11,PV,200,,,0,0,0,1,0,True
+Generator 10,Bus 10,PV,500,,,0,0,0,1,0,True
+Generator 12,Bus 12,PV,300,,,0,0,0,1,0,True
