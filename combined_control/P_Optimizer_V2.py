@@ -502,7 +502,7 @@ def link_optimization(
             network.links.at[k, "p_set"] = pyo.value(model.p_link[k])
 
         # Get timeseries: case, if link_optimization is used directly
-        if "p_set" not in getattr(network.links_t, "_series", {}):
+        if network.links_t.p_set.empty:
             network.links_t["p_set"] = pd.DataFrame(
                 0.0, index=network.snapshots, columns=network.links.index
             )
@@ -931,7 +931,7 @@ def show_snapshot_report_after_guard(results, network, snapshots="all"):
         P = network.lines_t.p0.loc[snap].astype(float)
         Q = (
             network.lines_t.q0.loc[snap].astype(float)
-            if "q0" in getattr(network.lines_t, "_series", {})
+            if not network.lines_t.q0.empty
             else 0.0 * P
         )
         S = np.hypot(P, Q)
@@ -955,11 +955,11 @@ def show_snapshot_report_after_guard(results, network, snapshots="all"):
             print("\n Trafo Loading Default:")
             print(default_trafos_S.sort_values(ascending=False).round(2))
 
-        if has_trafos and "p0" in getattr(network.transformers_t, "_series", {}):
+        if has_trafos and not network.transformers_t.p0.empty:
             PT = network.transformers_t.p0.loc[snap].astype(float)
             QT = (
                 network.transformers_t.q0.loc[snap].astype(float)
-                if "q0" in getattr(network.transformers_t, "_series", {})
+                if not network.transformers_t.q0.empty
                 else 0.0 * PT
             )
             ST = np.hypot(PT, QT)

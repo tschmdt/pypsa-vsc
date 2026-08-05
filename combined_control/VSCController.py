@@ -437,7 +437,7 @@ class VSCController:
         cols=n.controllable_vscs.index
         
         # If timeseries available--> use it
-        if "q_set" in getattr(n.controllable_vscs_t, "_series", {}):
+        if not n.controllable_vscs_t.q_set.empty:
             n.controllable_vscs_t.q_set = (
                 n.controllable_vscs_t.q_set
                 .reindex(index=n.snapshots, columns=cols, fill_value=0.0)
@@ -475,7 +475,7 @@ class VSCController:
         cols = n.links.index
     
         # If timeseries available--> use it
-        if "p_set" in getattr(n.links_t, "_series", {}):
+        if not n.links_t.p_set.empty:
             n.links_t.p_set = (
                 n.links_t.p_set.reindex(index=n.snapshots, columns=cols, fill_value=0.0)
                               .astype(float)
@@ -742,10 +742,11 @@ class VSCController:
                 if lo_clip <= hi_clip:
                     dP = lo_clip if abs(lo_clip) < abs(hi_clip) else hi_clip
                     # anwenden
-                    n.links.loc[k, "p_set"] = p_now + dP
-                    if "p_set" not in getattr(n.links_t, "_series", {}):
+                    p_new = p_now + dP
+                    n.links.loc[k, "p_set"] = p_new
+                    if n.links_t.p_set.empty:
                         self._ensure_link_pset_timeseries()
-                    n.links_t.p_set.loc[snapshot, k] = float(n.links_t.p_set.loc[snapshot, k]) + dP
+                    n.links_t.p_set.loc[snapshot, k] = p_new
                     changed = True
                     continue  # zum nächsten Link
     
@@ -757,10 +758,11 @@ class VSCController:
                 dP_raw = min(cands, key=lambda x: abs(x))
                 dP = min(max(dP_raw, dP_lo_hw), dP_hi_hw)
                 if abs(dP) > 0.0:  # Bewegung vorhanden
-                    n.links.loc[k, "p_set"] = p_now + dP
-                    if "p_set" not in getattr(n.links_t, "_series", {}):
+                    p_new = p_now + dP
+                    n.links.loc[k, "p_set"] = p_new
+                    if n.links_t.p_set.empty:
                         self._ensure_link_pset_timeseries()
-                    n.links_t.p_set.loc[snapshot, k] = float(n.links_t.p_set.loc[snapshot, k]) + dP
+                    n.links_t.p_set.loc[snapshot, k] = p_new
                     changed = True
     
         if changed:
@@ -837,10 +839,10 @@ class VSCController:
             loading_lines_S = 100.0 * S / s_line_max
     
             # Trafos – finale AC-Ströme (S) & Auslastungen (falls vorhanden)
-            if has_trafos and "p0" in getattr(self.network.transformers_t, "_series", {}):
+            if has_trafos and not self.network.transformers_t.p0.empty:
                 PT = self.network.transformers_t.p0.loc[snap]
                 QT = (self.network.transformers_t.q0.loc[snap]
-                      if "q0" in getattr(self.network.transformers_t, "_series", {})
+                      if not self.network.transformers_t.q0.empty
                       else PT*0.0)
                 ST = np.hypot(PT, QT)
                 loading_trafos_S = 100.0 * ST / s_trafo_max
@@ -849,7 +851,7 @@ class VSCController:
     
             # Finale Link-Leistung (DC-Modell: p0)
             links_p0_final = (self.network.links_t.p0.loc[snap].copy()
-                              if "p0" in getattr(self.network.links_t, "_series", {})
+                              if not self.network.links_t.p0.empty
                               else None)
     
             # Buswinkel (nur Info)
