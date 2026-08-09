@@ -84,3 +84,9 @@ envs/
 
 # Interne Entwurfs-/Paper-Notizen (lokal behalten, nicht im Repository)
 N1_GUARD_DESIGN.md
+
+
+# Local AI development workflow
+.cursor/
+.agent/
+AGENTS.md
