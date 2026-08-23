@@ -292,6 +292,7 @@ def q_optimization(
     pf_callback=None,
     lpf_callback=None,
     plot_heatmap=True,
+    q_limit_callback=None,
 ):
     print("[link_opt] target:", getattr(network, "_whoami", "unknown"), id(network))
 
@@ -301,6 +302,8 @@ def q_optimization(
 
     for snapshot in network.snapshots:
         network.snapshot = snapshot
+        if q_limit_callback is not None:
+            q_limit_callback(snapshot)
 
         # if pf_callback is not None:
         #     pf_callback()
