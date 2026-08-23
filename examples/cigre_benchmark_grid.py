@@ -61,21 +61,21 @@ def build_cigre_vhl() -> pypsa.Network:
         p_nom=500.0,
     )
     n.add(
-        "ControllableVSC",
-        "VSC 1",
-        bus="Bus 7",
+    "ControllableVSC",
+    "VSC 1",
+    bus="Bus 7",
         q_set=0.0,
-        link="Link 7-8",
-        side="bus0",
-    )
+    link="Link 7-8",
+    side="bus0",
+)
     n.add(
-        "ControllableVSC",
-        "VSC 2",
-        bus="Bus 8",
+    "ControllableVSC",
+    "VSC 2",
+    bus="Bus 8",
         q_set=0.0,
-        link="Link 7-8",
-        side="bus1",
-    )
+    link="Link 7-8",
+    side="bus1",
+)
     return n
 
 
@@ -97,6 +97,7 @@ def main() -> None:
     snap = n.snapshots[0]
     n.pf()
     loading_initial = ac_loading(n, snap)
+
     v_initial = n.buses_t.v_mag_pu.loc[snap]
     print_state(n, snap, "Initial AC power flow")
 
@@ -131,7 +132,7 @@ def main() -> None:
     )
 
     out_dir = Path(__file__).resolve().parent / "output"
-    out_dir.mkdir(parents=True, exist_ok=True)
+out_dir.mkdir(parents=True, exist_ok=True)
 
     ax = df_loadings.plot(kind="bar", figsize=(12, 7))
     ax.set_ylabel("Loading [% of s_nom]")

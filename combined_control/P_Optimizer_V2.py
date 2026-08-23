@@ -809,14 +809,14 @@ def show_snapshot_report(
             print(np.degrees(network.buses_t.v_ang.loc[snapshot]))
 
             print(
-                "\n Max |Δθ| Line : "
+                "\n Max |dtheta| Line : "
                 f"{res.get('max_abs_dtheta_line_rad', 0.0):.5f} rad "
-                f"({res.get('max_abs_dtheta_line_deg', 0.0):.3f}°)"
+                f"({res.get('max_abs_dtheta_line_deg', 0.0):.3f} deg)"
             )
             print(
-                " Max |Δθ| Trafo: "
+                " Max |dtheta| Trafo: "
                 f"{res.get('max_abs_dtheta_trafo_rad', 0.0):.5f} rad "
-                f"({res.get('max_abs_dtheta_trafo_deg', 0.0):.3f}°)"
+                f"({res.get('max_abs_dtheta_trafo_deg', 0.0):.3f} deg)"
             )
             # print("Line where max. angle occurs: " f"{ res.get('max_angle_line_number')})
 
@@ -920,12 +920,12 @@ def show_snapshot_report_after_guard(results, network, snapshots="all"):
             print(f" All branch angle differences are within ±{angle_limit_deg:.1f}°")
 
         print(
-            "\n Max |Δθ| Line (after Guard): "
-            f"{max_dtheta_line_rad_after_guard:.5f} rad ({max_dtheta_line_deg:.3f}°)"
+            "\n Max |dtheta| Line (after Guard): "
+            f"{max_dtheta_line_rad_after_guard:.5f} rad ({max_dtheta_line_deg:.3f} deg)"
         )
         print(
-            " Max |Δθ| Trafo (after Guard): "
-            f"{max_dtheta_trafo_rad_after_guard:.5f} rad ({max_dtheta_trafo_deg:.3f}°)"
+            " Max |dtheta| Trafo (after Guard): "
+            f"{max_dtheta_trafo_rad_after_guard:.5f} rad ({max_dtheta_trafo_deg:.3f} deg)"
         )
 
         # 1) Print new optimized Link

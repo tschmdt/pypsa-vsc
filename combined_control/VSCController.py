@@ -21,7 +21,6 @@ class ControllerConfig:
     Here, defaults are defined ("single source of truth")")
         -angle_limit_deg: Limit angle (degrees) for P optimization
         -v_target: Target voltages (p.u.) for Q optimization
-        -epsilon: Step size (MVAr) for sensitivity calculation in Q optimization
         -run_vsi: Activate FVSI (fast voltage stability index) calculation before/after Q optimization
         -max_line_loading: (therm.) line loading limit (upper boundary) in P optimization
         -S_rated: Rated apparent power of the VSC(s) in MVA
@@ -39,7 +38,6 @@ class ControllerConfig:
 
     angle_limit_deg: float = 25.0
     v_target: float = 1.0
-    epsilon: float = 20.0
     run_vsi: bool = True
     max_line_loading: float = 0.95  # 1.0 = 100%
     S_rated: float = 400.0  # [MVA]
@@ -82,8 +80,10 @@ class VSCController:
         self._ptdf_cache: dict[int, pd.DataFrame] = {}
         self._bodf_cache: dict[int, pd.DataFrame] = {}
         self.n1_guard = N1Guard(self.network, self.cfg)
+        self.v_base0: pd.DataFrame | None = None
+        self.loading_base0: pd.DataFrame | None = None
+        self._p_set_t_before: pd.DataFrame | None = None
 
-        
         # Use the tags to ensure working with the correct network object
         if self.cfg.enforce_target_tag and self.cfg.target_tag is not None:
             assert getattr(self.network, "_whoami", None) == self.cfg.target_tag, \
@@ -143,7 +143,8 @@ class VSCController:
             )  # Dummy timestamp
             
         self._ensure_link_pset_timeseries()
-
+        self._store_ac_base()
+        self._p_set_t_before = self.network.links_t.p_set.astype(float).copy()
 
         if (
             report_snapshots is None
@@ -196,9 +197,13 @@ class VSCController:
             for snap in self.network.snapshots:
                 self.enforce_n1_guard(snap)
             self.pf_callback()
+
+        self._backoff_p_vs_voltage_base()
+        self._apply_q_limits_from_p(self.network.links["p_set"].astype(float))
+
+        if self.cfg.n1_guard_enable:
             if show_report:
                 show_snapshot_report_after_guard(self.p_result, self.network, report_snapshots)
-                    
         else:
             show_snapshot_report(self.p_result, 
                                  self.network, 
@@ -219,7 +224,6 @@ class VSCController:
     ):
         """
         -runs the Q-Optimization script, optionally with FVSI evaluation
-        -epsilon: optional override of the config
         -v_target: optional override of the config
         -(run_vsi: optional override of the config)
 
@@ -230,7 +234,8 @@ class VSCController:
         if pf_first:
             print("\n === Initial pf() ===")
             self.pf_callback()
-            
+            self._store_ac_base()
+
             # if None, then config values (default) are used. Otherwise the value set within the method call.
             #run_vsi = self.cfg.run_vsi if run_vsi is None else bool(run_vsi)
 
@@ -271,11 +276,12 @@ class VSCController:
         self.q_result = q_optimization(
             self.network,
             angle_limit_deg=effective_angle,
-            epsilon=self.cfg.epsilon,
             v_target=self.cfg.v_target,
             pf_callback=self.pf_callback,
             lpf_callback=self.lpf_callback,
             q_limit_callback=self._apply_q_limits_for_snapshot,
+            v_base0=self.v_base0,
+            loading_base0=self.loading_base0,
         )
 
         if run_vsi:
@@ -380,6 +386,41 @@ class VSCController:
         print(f"Total lpf() calls: {self.lpf_counter}")
 
         return result
+
+    def _store_ac_base(self) -> None:
+        """v_base0 [p.u.] and loading_base0 [%] from |S|/s_nom after the initial PF."""
+        n = self.network
+        self.v_base0 = n.buses_t.v_mag_pu.copy()
+        rows = []
+        for snap in n.snapshots:
+            P = n.lines_t.p0.loc[snap]
+            Q = n.lines_t.q0.loc[snap]
+            rows.append(100.0 * np.hypot(P, Q) / n.lines.s_nom)
+        self.loading_base0 = pd.DataFrame(rows, index=n.snapshots)
+
+    def _backoff_p_vs_voltage_base(self) -> None:
+        """p_set = p_before + a*(p_P - p_before) [MW] until max PQ |V-v_target| <= base."""
+        if self.v_base0 is None or self._p_set_t_before is None:
+            return
+        n = self.network
+        v_target = self.cfg.v_target
+        pq = n.buses.index[n.buses.control.eq("PQ")]
+        p_P_t = n.links_t.p_set.astype(float).copy()
+        for snap in n.snapshots:
+            err0 = float(np.max(np.abs(self.v_base0.loc[snap, pq] - v_target)))
+            err = float(np.max(np.abs(n.buses_t.v_mag_pu.loc[snap, pq] - v_target)))
+            if err <= err0:
+                continue
+            p_P = p_P_t.loc[snap]
+            p_b = self._p_set_t_before.loc[snap]
+            for alpha in (0.5, 0.25, 0.0):
+                p = p_b + alpha * (p_P - p_b)
+                n.links_t.p_set.loc[snap, p.index] = p.to_numpy()
+                n.links.loc[p.index, "p_set"] = p.to_numpy()
+                self.pf_callback()
+                err = float(np.max(np.abs(n.buses_t.v_mag_pu.loc[snap, pq] - v_target)))
+                if err <= err0:
+                    break
 
     # Method call to update the vsc limits during the optimization workflow
     def _update_vsc_limits(
