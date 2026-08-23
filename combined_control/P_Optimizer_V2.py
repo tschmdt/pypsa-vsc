@@ -150,9 +150,20 @@ def link_optimization(
             for t in transformers
         }
 
-        # Capacities (Boundaries)
-        s_nom_line = {l: network.lines.at[l, "s_nom"] for l in lines}
-        s_nom_trafo = {t: network.transformers.at[t, "s_nom"] for t in transformers}
+        # Capacities [MVA]. Typed CIGRE lines store s_nom on line_types;
+        # apply_line_types copies r/x/b but not s_nom, so the column can be 0.
+        s_nom_line = {}
+        for l in lines:
+            sn = float(network.lines.at[l, "s_nom"])
+            if sn <= 0.0:
+                typ = network.lines.at[l, "type"]
+                npar = float(network.lines.at[l, "num_parallel"])
+                sn = float(network.line_types.at[typ, "s_nom"]) * npar
+                network.lines.at[l, "s_nom"] = sn
+            s_nom_line[l] = sn
+        s_nom_trafo = {
+            t: float(network.transformers.at[t, "s_nom"]) for t in transformers
+        }
 
         # Generators and Loads (Sum at each Bus)
         if "p_set" in getattr(network.generators_t, "_series", {}):

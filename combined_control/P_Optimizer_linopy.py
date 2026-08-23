@@ -87,8 +87,17 @@ def link_optimization_linopy(
             for t in transformers
         }
 
-        # Kapazitäten
-        s_nom_line = {l: float(network.lines.at[l, "s_nom"]) for l in lines}
+        # Capacities [MVA]. Typed CIGRE lines store s_nom on line_types;
+        # apply_line_types copies r/x/b but not s_nom, so the column can be 0.
+        s_nom_line = {}
+        for l in lines:
+            sn = float(network.lines.at[l, "s_nom"])
+            if sn <= 0.0:
+                typ = network.lines.at[l, "type"]
+                npar = float(network.lines.at[l, "num_parallel"])
+                sn = float(network.line_types.at[typ, "s_nom"]) * npar
+                network.lines.at[l, "s_nom"] = sn
+            s_nom_line[l] = sn
         s_nom_trafo = {
             t: float(network.transformers.at[t, "s_nom"]) for t in transformers
         }
@@ -278,12 +287,15 @@ def link_optimization_linopy(
 
             m.add_constraints(expr == 0)
 
-        # --- 4) Zielfunktion (konvex quadratisch): Summe der normierten Quadrate ---
-        obj = 0
+        # --- 4) Objective (convex quadratic): sum of (f/s_nom)^2 ---
+        # Do not start from the Python int 0: linopy 0.9 rejects a nonzero .const.
+        obj = None
         for l in lines:
-            obj = obj + (f_line.sel(line=l) / s_nom_line[l]) ** 2
+            term = (f_line.sel(line=l) / s_nom_line[l]) ** 2
+            obj = term if obj is None else obj + term
         for t in transformers:
-            obj = obj + (f_trafo.sel(trafo=t) / s_nom_trafo[t]) ** 2
+            term = (f_trafo.sel(trafo=t) / s_nom_trafo[t]) ** 2
+            obj = term if obj is None else obj + term
         m.add_objective(obj)
 
         # --- 5) Solve ---
