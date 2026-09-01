@@ -31,7 +31,7 @@ jobs:
         shell: bash -l {0}
 
     steps:
-    - uses: actions/checkout@v4.2.2
+    - uses: actions/checkout@v7
       with:
         repository: PyPSA/pypsa-eur
         ref: master
@@ -59,7 +59,7 @@ jobs:
         echo -ne "url: ${CDSAPI_URL}\nkey: ${CDSAPI_TOKEN}\n" > ~/.cdsapirc
         echo "week=$(date +'%Y%U')" >> $GITHUB_ENV # data and cutouts
 
-    - uses: actions/cache@v4
+    - uses: actions/cache@v6
       if: env.pinned == 'false'
       with:
         path: |
@@ -67,14 +67,14 @@ jobs:
           cutouts
         key: data-cutouts-${{ env.week }}
 
-    - uses: conda-incubator/setup-miniconda@v3
+    - uses: conda-incubator/setup-miniconda@v4
       if: env.pinned == 'false'
       with:
         activate-environment: pypsa-eur
 
     - name: Cache Conda env
       if: env.pinned == 'false'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ env.CONDA }}/envs
         key: conda-pypsa-eur-${{ env.week }}-${{ hashFiles('envs/linux-pinned.yaml') }}
@@ -96,7 +96,7 @@ jobs:
 
     - name: Upload artifacts
       if: env.pinned == 'false'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: results-pypsa-eur-${{ matrix.version }}
         path: |
