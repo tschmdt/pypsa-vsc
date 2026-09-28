@@ -220,8 +220,13 @@ class N1Guard:
         link_intervals: dict[str, tuple[float, float]] = {
             k: (-float("inf"), float("inf")) for k in n.links.index
         }
-        # NEU: sammle ΔP-Kandidaten aus einzelnen verletzten Nebenbedingungen
+        # Best-effort: Kandidaten und Nebenbedingungen je Link sammeln.
+        # Falls kein global zulässiges Intervall existiert, wird später das ΔP
+        # gewählt, das die verbleibende maximale relative Überlast minimiert.
         link_candidates: dict[str, list[float]] = {k: [] for k in n.links.index}
+        link_constraints: dict[str, list[tuple[float, float, float]]] = {
+            k: [] for k in n.links.index
+        }
 
         for o in outages:
             # LODF-Spalte (BODF) für den Ausfall o
@@ -243,21 +248,36 @@ class N1Guard:
                 # a-Vektor: Einfluss des Links im Ausfall o  => ISF(ℓ) + L_{ℓ,o}*ISF(o)
                 a_vec = (ISF + Lcol * float(ISF.get(o, 0.0))).astype(float)
 
-                # winzige Koeffizienten ignorieren (stabiler)
-                sel = a_vec.abs() > eps_isf
                 lo_k, hi_k = link_intervals[k]
 
-                for ell, a in a_vec[sel].items():
+                for ell in n.lines.index:
+                    a = float(a_vec.get(ell, 0.0))
                     b = float(F_o.get(ell, 0.0))
                     lim = float(Pmax.get(ell, 0.0))
+
+                    # Kann der Link diese Leitung praktisch nicht beeinflussen,
+                    # ist eine bestehende Überlast für diesen Link nicht lösbar.
+                    if abs(a) <= eps_isf:
+                        if abs(b) > lim + 1e-9:
+                            lo_k, hi_k = 1.0, 0.0
+                        continue
+
+                    link_constraints[k].append((a, b, lim))
                     iv = self._interval_from_abs_linear(a, b, lim)
+
                     if iv is None:
-                        lo_k, hi_k = 1.0, 0.0  # leeres Intervall
-                        break
-                    lo_k = max(lo_k, iv[0])
-                    hi_k = min(hi_k, iv[1])
-                    if lo_k > hi_k:
-                        break
+                        lo_k, hi_k = 1.0, 0.0
+                        continue
+
+                    # Für verletzte Einzelbedingungen einen best-effort Kandidaten
+                    # sammeln: kleinste Änderung, die diese Bedingung erfüllen würde.
+                    if abs(b) > lim + 1e-9:
+                        candidate = iv[0] if abs(iv[0]) < abs(iv[1]) else iv[1]
+                        link_candidates[k].append(candidate)
+
+                    if lo_k <= hi_k:
+                        lo_k = max(lo_k, iv[0])
+                        hi_k = min(hi_k, iv[1])
 
                 link_intervals[k] = (lo_k, hi_k)
 
@@ -302,14 +322,26 @@ class N1Guard:
                     changed = True
                     continue  # zum nächsten Link
 
-            # 2) Fallback: globaler Schnitt leer (oder 0 drin -> keine Notwendigkeit).
-            #    Nimm best-effort Kandidaten (nächstliegende Projektion) aus EINZEL-Bedingungen.
+            # 2) Fallback: kein vollständig zulässiger Schnitt.
+            #    Wähle innerhalb der Hardwaregrenzen das Kandidaten-ΔP, das die
+            #    größte verbleibende relative Überlast möglichst klein macht.
             cands = link_candidates.get(k, [])
-            if len(cands) > 0:
-                # wähle minimalen |ΔP| und schneide HW
-                dP_raw = min(cands, key=lambda x: abs(x))
-                dP = min(max(dP_raw, dP_lo_hw), dP_hi_hw)
-                if abs(dP) > 0.0:  # Bewegung vorhanden
+            constraints = link_constraints.get(k, [])
+            if cands and constraints:
+                candidates = [0.0]
+                candidates += [
+                    min(max(dP_raw, dP_lo_hw), dP_hi_hw) for dP_raw in cands
+                ]
+
+                def worst_overload(dP: float) -> float:
+                    return max(
+                        max(abs(b + a * dP) - lim, 0.0) / max(lim, 1e-12)
+                        for a, b, lim in constraints
+                    )
+
+                dP = min(candidates, key=lambda x: (worst_overload(x), abs(x)))
+
+                if abs(dP) > 0.0:
                     p_new = p_now + dP
                     n.links.loc[k, "p_set"] = p_new
                     if n.links_t.p_set.empty:

@@ -132,7 +132,7 @@ def main() -> None:
     )
 
     out_dir = Path(__file__).resolve().parent / "output"
-out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     ax = df_loadings.plot(kind="bar", figsize=(12, 7))
     ax.set_ylabel("Loading [% of s_nom]")
