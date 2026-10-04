@@ -200,6 +200,27 @@ def print_case0_vs_tables(n: pypsa.Network, snapshot: object) -> None:
     print(f"\nmax |d loading| [pp]: {trafo_cmp['d [%]'].abs().max():.2f}")
 
 
+def print_slack_mismatch(n: pypsa.Network, snapshot: object, distributed: bool) -> None:
+    """Print slack mismatch Δ [MW] (p − p_set) and the generators that take it."""
+    p_set = n.generators["p_set"].astype(float)
+    p = n.generators_t.p.loc[snapshot].astype(float)
+    dp = p - p_set
+    delta = float(dp.sum())
+    mode = "distributed, weights p_set" if distributed else "single Slack"
+    print("\n=== Slack mismatch ===")
+    print(f"Δ = {delta:+.2f} MW ({mode}; + = extra generation).")
+    used = (
+        n.generators.index
+        if distributed
+        else n.generators.index[n.generators.control == "Slack"]
+    )
+    for g in used:
+        print(
+            f"  {g} ({n.generators.at[g, 'bus']}, {n.generators.at[g, 'control']}): "
+            f"{float(dp[g]):+.2f} MW"
+        )
+
+
 def print_state(n: pypsa.Network, snapshot: object, title: str) -> None:
     print(f"\n=== {title} ===")
     print("Line loading [%]:")
@@ -221,14 +242,6 @@ def main() -> None:
     print_case0_vs_tables(n0, snap0)
 
     # --- VHL path: Link 7-8 + VSCs + combined P/Q ---
-    n = build_cigre_vhl()
-    snap = n.snapshots[0]
-    n.pf()
-    loading_initial = ac_loading(n, snap)
-
-    v_initial = n.buses_t.v_mag_pu.loc[snap]
-    print_state(n, snap, "Initial AC power flow (with VHL, p_set=0)")
-
     cfg = ControllerConfig(
         angle_limit_deg=25.0,
         max_line_loading=0.95,
@@ -239,13 +252,22 @@ def main() -> None:
         slack_bus="Bus 9",
         distributed_slack=True,
     )
+    n = build_cigre_vhl()
+    snap = n.snapshots[0]
     ctl = VSCController(n, config=cfg)
+    ctl.pf_callback()
+    loading_initial = ac_loading(n, snap)
+
+    v_initial = n.buses_t.v_mag_pu.loc[snap]
+    print_state(n, snap, "Initial AC power flow (with VHL, p_set=0)")
+
     ctl.run_mode(mode="combined")
 
-    n.pf()
+    ctl.pf_callback()
     loading_opt = ac_loading(n, snap)
     v_opt = n.buses_t.v_mag_pu.loc[snap]
     print_state(n, snap, "After combined P/Q")
+    print_slack_mismatch(n, snap, cfg.distributed_slack)
 
     df_loadings = pd.DataFrame(
         {

@@ -561,7 +561,10 @@ def link_optimization(
             if pf_callback is not None:
                 pf_callback()
             else:
-                network.pf()
+                network.pf(
+                    distribute_slack=distributed_slack,
+                    slack_weights="p_set",
+                )
             # if pf_callback is not None:
             #     pf_callback()
             # else:

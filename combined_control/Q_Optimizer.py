@@ -11,7 +11,7 @@ import matplotlib.colors as mcolors
 # --- Helpers -------------------------------------------------
 
 
-def check_S_column(network, snapshot, S_df, vsc_name, dq=1.0):
+def check_S_column(network, snapshot, S_df, vsc_name, dq=1.0, distributed_slack=False):
     """
     Prüft eine Spalte der Sensitivitätsmatrix S_df gegen einen numerischen dV/dQ-Versuch.
 
@@ -26,20 +26,20 @@ def check_S_column(network, snapshot, S_df, vsc_name, dq=1.0):
     pq_buses = network.buses.query('control == "PQ"').index
 
     # 1) Basiszustand
-    network.pf()
+    network.pf(distribute_slack=distributed_slack, slack_weights="p_set")
     v_base = network.buses_t.v_mag_pu.loc[snapshot, pq_buses].copy()
 
     # 2) numerische Perturbation
     q_old = network.controllable_vscs_t.q_set.loc[snapshot, vsc_name]
     network.controllable_vscs_t.q_set.loc[snapshot, vsc_name] = q_old + dq
-    network.pf()
+    network.pf(distribute_slack=distributed_slack, slack_weights="p_set")
 
     v_new = network.buses_t.v_mag_pu.loc[snapshot, pq_buses]
     dv_num = v_new - v_base
 
     # Zustand zurücksetzen
     network.controllable_vscs_t.q_set.loc[snapshot, vsc_name] = q_old
-    network.pf()
+    network.pf(distribute_slack=distributed_slack, slack_weights="p_set")
 
     # 3) analytisches dV aus S-Matrix
     dv_ana = S_df.loc[pq_buses, vsc_name] * dq
@@ -125,10 +125,10 @@ def compute_jacobian_blocks_from_Ybus(Ybus, V, theta):
     Q = (Vk * (G * sin_ - B * cos_) * Vm).sum(axis=1)
 
     # Off-diagonal terms
-    H = Vk * Vm * (G * sin_ - B * cos_)       # dP/dtheta
-    N = Vk * (G * cos_ + B * sin_)            # dP/d|V|
-    M = -Vk * Vm * (G * cos_ + B * sin_)      # dQ/dtheta
-    L = Vk * (G * sin_ - B * cos_)            # dQ/d|V|
+    H = Vk * Vm * (G * sin_ - B * cos_)  # dP/dtheta
+    N = Vk * (G * cos_ + B * sin_)  # dP/d|V|
+    M = -Vk * Vm * (G * cos_ + B * sin_)  # dQ/dtheta
+    L = Vk * (G * sin_ - B * cos_)  # dQ/d|V|
 
     # Diagonal terms
     Bdiag = np.diag(B)
@@ -278,6 +278,7 @@ def q_opt_step_without_pf_loop(
     angle_limit_deg,
     v_target=1.0,
     plot_heatmap=True,
+    distributed_slack=False,
 ):
     """
     Single Q-optimization step:
@@ -288,23 +289,17 @@ def q_opt_step_without_pf_loop(
     """
     network.snapshot = snapshot
 
-    if not np.isfinite(
-        network.buses_t.v_mag_pu.loc[snapshot]
-    ).all():
-        network.pf()
+    if not np.isfinite(network.buses_t.v_mag_pu.loc[snapshot]).all():
+        network.pf(distribute_slack=distributed_slack, slack_weights="p_set")
 
-    pq_buses = network.buses.query(
-        'control == "PQ"'
-    ).index
+    pq_buses = network.buses.query('control == "PQ"').index
 
     v_base = network.buses_t.v_mag_pu.loc[
         snapshot,
         pq_buses,
     ].copy()
 
-    delta_v = (
-        v_target - v_base
-    ).to_numpy()
+    delta_v = (v_target - v_base).to_numpy()
 
     S_df = compute_S_matrix_all_subnets(
         network,
@@ -364,17 +359,26 @@ def q_opt_step_without_pf_loop(
     )
 
     print("\nQ adjustment:")
-    print(pd.DataFrame({
-        "Q before": q_now,
-        "Delta Q": delta_q,
-        "Q after": q_opt.values,
-    }, index=S_df.columns))
+    print(
+        pd.DataFrame(
+            {
+                "Q before": q_now,
+                "Delta Q": delta_q,
+                "Q after": q_opt.values,
+            },
+            index=S_df.columns,
+        )
+    )
 
     print("\nLinear voltage prediction:")
-    print(pd.DataFrame({
-        "V before": v_base,
-        "V predicted": v_pred,
-    }))
+    print(
+        pd.DataFrame(
+            {
+                "V before": v_base,
+                "V predicted": v_pred,
+            }
+        )
+    )
 
     network.controllable_vscs_t.q_set.loc[
         snapshot,
@@ -386,7 +390,7 @@ def q_opt_step_without_pf_loop(
         "q_set",
     ] = q_opt.values
 
-    network.pf()
+    network.pf(distribute_slack=distributed_slack, slack_weights="p_set")
 
     if plot_heatmap:
         vmax_val = S_df.values.max()
@@ -427,6 +431,7 @@ def q_optimization(
     q_limit_callback=None,
     v_base0: pd.DataFrame | None = None,
     loading_base0: pd.DataFrame | None = None,
+    distributed_slack: bool = False,
 ):
     print(
         "[link_opt] target:",
@@ -446,7 +451,10 @@ def q_optimization(
         if pf_callback is not None:
             pf_callback()
         else:
-            network.pf()
+            network.pf(
+                distribute_slack=distributed_slack,
+                slack_weights="p_set",
+            )
 
         # 1. Initial voltage state
         v_mag_default = network.buses_t.v_mag_pu.loc[snapshot].copy()
@@ -479,7 +487,10 @@ def q_optimization(
             if pf_callback is not None:
                 pf_callback()
             else:
-                network.pf()
+                network.pf(
+                    distribute_slack=distributed_slack,
+                    slack_weights="p_set",
+                )
 
         for _it in range(max_q_iter):
             v_base = network.buses_t.v_mag_pu.loc[snapshot, pq_buses].copy()
@@ -579,9 +590,7 @@ def q_optimization(
                 q_opt_series = pd.Series(q_now, index=vsc_cols)
 
         # Diagnostic: predicted vs actual AC voltage
-        print(
-            "\nVoltage prediction vs actual AC result:"
-        )
+        print("\nVoltage prediction vs actual AC result:")
 
         print(
             pd.DataFrame(
@@ -597,23 +606,14 @@ def q_optimization(
         )
 
         # 8. Voltage analysis
-        v_mag_optimized = network.buses_t.v_mag_pu.loc[
-            snapshot
-        ].copy()
+        v_mag_optimized = network.buses_t.v_mag_pu.loc[snapshot].copy()
 
-        v_diff = (
-            (v_mag_optimized - v_mag_default)
-            / v_mag_default
-        ) * 100
+        v_diff = ((v_mag_optimized - v_mag_default) / v_mag_default) * 100
 
-        angles = network.buses_t.v_ang.loc[
-            snapshot
-        ]
+        angles = network.buses_t.v_ang.loc[snapshot]
 
         # 9. Branch angle differences
-        theta_limit_rad = np.radians(
-            angle_limit_deg
-        ) - np.radians(3.0)
+        theta_limit_rad = np.radians(angle_limit_deg) - np.radians(3.0)
 
         dtheta_line_rad = []
 
@@ -621,16 +621,9 @@ def q_optimization(
             i = network.lines.at[line, "bus0"]
             j = network.lines.at[line, "bus1"]
 
-            dtheta_line_rad.append(
-                float(
-                    angles[i]
-                    - angles[j]
-                )
-            )
+            dtheta_line_rad.append(float(angles[i] - angles[j]))
 
-        dtheta_line_rad = np.array(
-            dtheta_line_rad
-        )
+        dtheta_line_rad = np.array(dtheta_line_rad)
 
         dtheta_trafo_rad = []
 
@@ -645,106 +638,44 @@ def q_optimization(
                 "bus1",
             ]
 
-            dtheta_trafo_rad.append(
-                float(
-                    angles[i]
-                    - angles[j]
-                )
-            )
+            dtheta_trafo_rad.append(float(angles[i] - angles[j]))
 
-        dtheta_trafo_rad = np.array(
-            dtheta_trafo_rad
-        )
+        dtheta_trafo_rad = np.array(dtheta_trafo_rad)
 
         max_dtheta_line_rad = (
-            float(
-                np.max(
-                    np.abs(
-                        dtheta_line_rad
-                    )
-                )
-            )
-            if dtheta_line_rad.size
-            else 0.0
+            float(np.max(np.abs(dtheta_line_rad))) if dtheta_line_rad.size else 0.0
         )
 
         max_dtheta_trafo_rad = (
-            float(
-                np.max(
-                    np.abs(
-                        dtheta_trafo_rad
-                    )
-                )
-            )
-            if dtheta_trafo_rad.size
-            else 0.0
+            float(np.max(np.abs(dtheta_trafo_rad))) if dtheta_trafo_rad.size else 0.0
         )
 
         violation_line = (
-            bool(
-                (
-                    np.abs(
-                        dtheta_line_rad
-                    )
-                    > (
-                        theta_limit_rad
-                        + np.radians(3.0)
-                    )
-                ).any()
-            )
+            bool((np.abs(dtheta_line_rad) > (theta_limit_rad + np.radians(3.0))).any())
             if dtheta_line_rad.size
             else False
         )
 
         violation_trafo = (
-            bool(
-                (
-                    np.abs(
-                        dtheta_trafo_rad
-                    )
-                    > (
-                        theta_limit_rad
-                        + np.radians(3.0)
-                    )
-                ).any()
-            )
+            bool((np.abs(dtheta_trafo_rad) > (theta_limit_rad + np.radians(3.0))).any())
             if dtheta_trafo_rad.size
             else False
         )
 
-        violation = (
-            violation_line
-            or violation_trafo
-        )
+        violation = violation_line or violation_trafo
 
-        max_dtheta_line_deg = float(
-            np.degrees(
-                max_dtheta_line_rad
-            )
-        )
+        max_dtheta_line_deg = float(np.degrees(max_dtheta_line_rad))
 
-        max_dtheta_trafo_deg = float(
-            np.degrees(
-                max_dtheta_trafo_rad
-            )
-        )
+        max_dtheta_trafo_deg = float(np.degrees(max_dtheta_trafo_rad))
 
         # 10. Final line loading
-        P0_new = network.lines_t.p0.loc[
-            snapshot
-        ]
+        P0_new = network.lines_t.p0.loc[snapshot]
 
-        P1_new = network.lines_t.p1.loc[
-            snapshot
-        ]
+        P1_new = network.lines_t.p1.loc[snapshot]
 
-        Q0_new = network.lines_t.q0.loc[
-            snapshot
-        ]
+        Q0_new = network.lines_t.q0.loc[snapshot]
 
-        Q1_new = network.lines_t.q1.loc[
-            snapshot
-        ]
+        Q1_new = network.lines_t.q1.loc[snapshot]
 
         S0_new = np.hypot(
             P0_new,
@@ -764,29 +695,16 @@ def q_optimization(
                 1.0,
                 index=s_nom.index,
             ),
-        ).reindex(
-            s_nom.index
-        )
+        ).reindex(s_nom.index)
 
-        S_limit = (
-            s_nom
-            * s_max_pu
-        ).replace(
+        S_limit = (s_nom * s_max_pu).replace(
             0,
             np.nan,
         )
 
-        loading0_ac_new = (
-            100
-            * S0_new
-            / S_limit
-        )
+        loading0_ac_new = 100 * S0_new / S_limit
 
-        loading1_ac_new = (
-            100
-            * S1_new
-            / S_limit
-        )
+        loading1_ac_new = 100 * S1_new / S_limit
 
         loading_lines_new = pd.concat(
             [
@@ -794,26 +712,16 @@ def q_optimization(
                 loading1_ac_new,
             ],
             axis=1,
-        ).max(
-            axis=1
-        )
+        ).max(axis=1)
 
         # Transformers
-        P_T0_new = network.transformers_t.p0.loc[
-            snapshot
-        ]
+        P_T0_new = network.transformers_t.p0.loc[snapshot]
 
-        P_T1_new = network.transformers_t.p1.loc[
-            snapshot
-        ]
+        P_T1_new = network.transformers_t.p1.loc[snapshot]
 
-        Q_T0_new = network.transformers_t.q0.loc[
-            snapshot
-        ]
+        Q_T0_new = network.transformers_t.q0.loc[snapshot]
 
-        Q_T1_new = network.transformers_t.q1.loc[
-            snapshot
-        ]
+        Q_T1_new = network.transformers_t.q1.loc[snapshot]
 
         S_T0_new = np.hypot(
             P_T0_new,
@@ -833,29 +741,16 @@ def q_optimization(
                 1.0,
                 index=s_T_nom.index,
             ),
-        ).reindex(
-            s_T_nom.index
-        )
+        ).reindex(s_T_nom.index)
 
-        S_T_limit = (
-            s_T_nom
-            * s_T_max_pu
-        ).replace(
+        S_T_limit = (s_T_nom * s_T_max_pu).replace(
             0,
             np.nan,
         )
 
-        loading_T0_ac_new = (
-            100
-            * S_T0_new
-            / S_T_limit
-        )
+        loading_T0_ac_new = 100 * S_T0_new / S_T_limit
 
-        loading_T1_ac_new = (
-            100
-            * S_T1_new
-            / S_T_limit
-        )
+        loading_T1_ac_new = 100 * S_T1_new / S_T_limit
 
         loading_trafo_new = pd.concat(
             [
@@ -863,9 +758,7 @@ def q_optimization(
                 loading_T1_ac_new,
             ],
             axis=1,
-        ).max(
-            axis=1
-        )
+        ).max(axis=1)
 
         # Heatmap
         if plot_heatmap:
@@ -884,9 +777,7 @@ def q_optimization(
                 vmax=vmax_val,
             )
 
-            fig, ax = plt.subplots(
-                figsize=(5, 3)
-            )
+            fig, ax = plt.subplots(figsize=(5, 3))
 
             hm = sns.heatmap(
                 S_plot,
@@ -896,19 +787,13 @@ def q_optimization(
                 cbar=True,
                 linewidths=0.5,
                 linecolor="lightgray",
-                cbar_kws={
-                    "shrink": 0.8
-                },
+                cbar_kws={"shrink": 0.8},
                 ax=ax,
             )
 
-            ax.set_xlabel(
-                "Controllable VSC"
-            )
+            ax.set_xlabel("Controllable VSC")
 
-            ax.set_ylabel(
-                "Bus"
-            )
+            ax.set_ylabel("Bus")
 
             cbar = hm.collections[0].colorbar
 
@@ -918,12 +803,7 @@ def q_optimization(
 
             cbar.set_ticks(ticks)
 
-            cbar.set_ticklabels(
-                [
-                    f"{t * factor:.2f}"
-                    for t in ticks
-                ]
-            )
+            cbar.set_ticklabels([f"{t * factor:.2f}" for t in ticks])
 
             cbar.ax.set_title(
                 r"$\times 10^{-3}$",
@@ -977,14 +857,10 @@ def show_snapshot_q_report(
         return
 
     if snapshots is None:
-        snapshots_to_show = list(
-            results.keys()
-        )
+        snapshots_to_show = list(results.keys())
 
     elif snapshots == "all":
-        snapshots_to_show = list(
-            results.keys()
-        )
+        snapshots_to_show = list(results.keys())
 
     elif isinstance(
         snapshots,
@@ -994,21 +870,13 @@ def show_snapshot_q_report(
             pd.Index,
         ),
     ):
-        snapshots_to_show = list(
-            snapshots
-        )
+        snapshots_to_show = list(snapshots)
 
     else:
-        snapshots_to_show = [
-            snapshots
-        ]
+        snapshots_to_show = [snapshots]
 
     if not snapshots_to_show:
-        snapshots_to_show = [
-            list(
-                results.keys()
-            )[0]
-        ]
+        snapshots_to_show = [list(results.keys())[0]]
 
     for snapshot in snapshots_to_show:
         if snapshot not in results:
@@ -1019,31 +887,18 @@ def show_snapshot_q_report(
             )
             continue
 
-        res = results[
-            snapshot
-        ]
+        res = results[snapshot]
 
-        print(
-            f"\n ====== Snapshot: {snapshot} ======"
-        )
+        print(f"\n ====== Snapshot: {snapshot} ======")
 
         if detail_level >= 0:
-            print(
-                "\n VSC Q Optimized [MVAr]:"
-            )
+            print("\n VSC Q Optimized [MVAr]:")
 
             for vsc in network.controllable_vscs.index:
-                if vsc in res[
-                    "q_opt"
-                ].index:
-                    print(
-                        f"{vsc}: "
-                        f"Q = {res['q_opt'][vsc]:.3f} MVAr"
-                    )
+                if vsc in res["q_opt"].index:
+                    print(f"{vsc}: Q = {res['q_opt'][vsc]:.3f} MVAr")
 
-            if res[
-                "violation"
-            ]:
+            if res["violation"]:
                 print(
                     f" Angle limit violated – at least one branch "
                     f"exceeds ±{res['angle_limit_deg']:.1f}°"
@@ -1056,58 +911,26 @@ def show_snapshot_q_report(
                 )
 
         if detail_level >= 1:
-            print(
-                "\n Final Line Loadings "
-            )
+            print("\n Final Line Loadings ")
 
-            print(
-                res[
-                    "loading_line_final"
-                ].head(5)
-            )
+            print(res["loading_line_final"].head(5))
 
-            print(
-                "\n Voltages (Default): "
-            )
+            print("\n Voltages (Default): ")
 
-            print(
-                res[
-                    "v_mag_default"
-                ].head(5)
-            )
+            print(res["v_mag_default"].head(5))
 
-            print(
-                "\n Voltages (Optimized): "
-            )
+            print("\n Voltages (Optimized): ")
 
-            print(
-                res[
-                    "v_mag_optimized"
-                ].head(5)
-            )
+            print(res["v_mag_optimized"].head(5))
 
-            print(
-                "\n Voltage Difference [%]: "
-            )
+            print("\n Voltage Difference [%]: ")
 
-            print(
-                res[
-                    "v_diff"
-                ].head(5)
-            )
+            print(res["v_diff"].head(5))
 
         if detail_level >= 2:
-            print(
-                "\n Final Bus Angles [°]:"
-            )
+            print("\n Final Bus Angles [°]:")
 
-            print(
-                np.degrees(
-                    network.buses_t.v_ang.loc[
-                        snapshot
-                    ]
-                )
-            )
+            print(np.degrees(network.buses_t.v_ang.loc[snapshot]))
 
             print(
                 "\n Max |dtheta| Line : "
@@ -1121,15 +944,9 @@ def show_snapshot_q_report(
                 f"({res.get('max_abs_dtheta_trafo_deg', 0.0):.3f} deg)"
             )
 
-            print(
-                "\n Sensitivity Matrix: "
-            )
+            print("\n Sensitivity Matrix: ")
 
-            print(
-                res[
-                    "S_df"
-                ]
-            )
+            print(res["S_df"])
 
             if vsi_default is not None:
                 if isinstance(
@@ -1137,28 +954,16 @@ def show_snapshot_q_report(
                     dict,
                 ):
                     if snapshot in vsi_default:
-                        print(
-                            "\n FVSI Default:"
-                        )
+                        print("\n FVSI Default:")
 
                         print(
-                            vsi_default[
-                                snapshot
-                            ].sort_values(
-                                ascending=False
-                            ).head(3)
+                            vsi_default[snapshot].sort_values(ascending=False).head(3)
                         )
 
                 else:
-                    print(
-                        "\n FVSI Default:"
-                    )
+                    print("\n FVSI Default:")
 
-                    print(
-                        vsi_default.sort_values(
-                            ascending=False
-                        ).head(3)
-                    )
+                    print(vsi_default.sort_values(ascending=False).head(3))
 
             if vsi_after_P is not None:
                 if isinstance(
@@ -1166,30 +971,16 @@ def show_snapshot_q_report(
                     dict,
                 ):
                     if snapshot in vsi_after_P:
-                        print(
-                            "\n FVSI before Q-optimization "
-                            "(after P-optimization):"
-                        )
+                        print("\n FVSI before Q-optimization (after P-optimization):")
 
                         print(
-                            vsi_after_P[
-                                snapshot
-                            ].sort_values(
-                                ascending=False
-                            ).head(3)
+                            vsi_after_P[snapshot].sort_values(ascending=False).head(3)
                         )
 
                 else:
-                    print(
-                        "\n FVSI before Q-optimization "
-                        "(after P-optimization):"
-                    )
+                    print("\n FVSI before Q-optimization (after P-optimization):")
 
-                    print(
-                        vsi_after_P.sort_values(
-                            ascending=False
-                        ).head(3)
-                    )
+                    print(vsi_after_P.sort_values(ascending=False).head(3))
 
             if vsi_opt is not None:
                 if isinstance(
@@ -1197,25 +988,11 @@ def show_snapshot_q_report(
                     dict,
                 ):
                     if snapshot in vsi_opt:
-                        print(
-                            "\n FVSI after Q-optimization:"
-                        )
+                        print("\n FVSI after Q-optimization:")
 
-                        print(
-                            vsi_opt[
-                                snapshot
-                            ].sort_values(
-                                ascending=False
-                            ).head(3)
-                        )
+                        print(vsi_opt[snapshot].sort_values(ascending=False).head(3))
 
                 else:
-                    print(
-                        "\n FVSI after Q-optimization:"
-                    )
+                    print("\n FVSI after Q-optimization:")
 
-                    print(
-                        vsi_opt.sort_values(
-                            ascending=False
-                        ).head(3)
-                    )
+                    print(vsi_opt.sort_values(ascending=False).head(3))

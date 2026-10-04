@@ -296,6 +296,7 @@ class VSCController:
             pf_callback=self.pf_callback,
             lpf_callback=self.lpf_callback,
             q_limit_callback=self._apply_q_limits_for_snapshot,
+            distributed_slack=self.cfg.distributed_slack,
         )
 
         if run_vsi:
