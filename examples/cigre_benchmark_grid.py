@@ -233,9 +233,11 @@ def main() -> None:
         angle_limit_deg=25.0,
         max_line_loading=0.95,
         S_rated=400.0,
-        n1_guard_enable=True,
+        n1_guard_enable=False,
         n1_guard_margin=0.95,
         n1_guard_max_passes=3,
+        slack_bus="Bus 9",
+        distributed_slack=False,
     )
     ctl = VSCController(n, config=cfg)
     ctl.run_mode(mode="combined")

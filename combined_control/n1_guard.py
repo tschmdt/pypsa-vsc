@@ -80,19 +80,13 @@ class N1Guard:
 
         raise RuntimeError("Kein SubNetwork gefunden. Bitte PyPSA-Version prüfen.")
 
-    def _get_ptdf_single(self, slack_bus: str = "Bus 9") -> pd.DataFrame:
+    def _get_ptdf_single(self) -> pd.DataFrame:
         """PTDF [p.u.]: rows = `_branch_index` (Line+Transformer), columns = buses."""
         if hasattr(self, "_PTDF_single"):
             return self._PTDF_single
 
         sn = self._get_sn_single()
-
-        # In deiner Version: Ergebnis steckt in sn.PTDF; Rückgabewert ist None.
-        try:
-            sn.calculate_PTDF(slack_bus=slack_bus)
-        except TypeError:
-            # ganz alte Signatur: kein slack_bus-Argument
-            sn.calculate_PTDF()
+        sn.calculate_PTDF()
 
         arr = getattr(sn, "PTDF", None)
         if arr is None:
