@@ -81,9 +81,7 @@ class N1Guard:
         raise RuntimeError("Kein SubNetwork gefunden. Bitte PyPSA-Version prüfen.")
 
     def _get_ptdf_single(self, slack_bus: str = "Bus 9") -> pd.DataFrame:
-        """
-        PTDF als DataFrame (Lines x Buses), nur Leitungen, Index=Leitungsnamen.
-        """
+        """PTDF [p.u.]: rows = `_branch_index` (Line+Transformer), columns = buses."""
         if hasattr(self, "_PTDF_single"):
             return self._PTDF_single
 
@@ -101,23 +99,13 @@ class N1Guard:
             raise RuntimeError("sn.calculate_PTDF() hat kein sn.PTDF befüllt.")
 
         ptdf = pd.DataFrame(arr, index=sn.branches_i(), columns=sn.buses_i())
-
-        # Nur Lines behalten und MultiIndex -> reine Namen
-        if isinstance(ptdf.index, pd.MultiIndex):
-            mask_line = ptdf.index.get_level_values(0) == "Line"
-            ptdf = ptdf.loc[mask_line, :].copy()
-            ptdf.index = ptdf.index.get_level_values(1)
-
-        # Auf aktuelle Leitungsreihenfolge bringen
-        ptdf = ptdf.reindex(self.network.lines.index).astype(float)
+        ptdf = ptdf.reindex(self._branch_index()).astype(float)
 
         self._PTDF_single = ptdf
         return ptdf
 
     def _get_bodf_single(self) -> pd.DataFrame:
-        """
-        BODF als DataFrame (Lines x Lines), nur Leitungen, Index/Spalten=Leitungsnamen.
-        """
+        """BODF/LODF [-]: rows/cols = `_branch_index` (Line+Transformer)."""
         if hasattr(self, "_BODF_single"):
             return self._BODF_single
 
@@ -131,47 +119,36 @@ class N1Guard:
         if bodf_calc is None:
             raise RuntimeError("sn.calculate_BODF() hat kein Ergebnis geliefert.")
 
+        branches = self._branch_index()
         bodf = pd.DataFrame(bodf_calc, index=sn.branches_i(), columns=sn.branches_i())
-
-        # Nur Lines x Lines und MultiIndex -> reine Namen
-        if isinstance(bodf.index, pd.MultiIndex):
-            idx_line = bodf.index.get_level_values(0) == "Line"
-            col_line = bodf.columns.get_level_values(0) == "Line"
-            bodf = bodf.loc[idx_line, col_line].copy()
-            bodf.index = bodf.index.get_level_values(1)
-            bodf.columns = bodf.columns.get_level_values(1)
-
-        # Auf aktuelle Leitungsreihenfolge/-menge bringen
-        li = self.network.lines.index
-        bodf = bodf.reindex(index=li, columns=li).fillna(0.0).astype(float)
+        bodf = bodf.reindex(index=branches, columns=branches).fillna(0.0).astype(float)
 
         self._BODF_single = bodf
         return bodf
 
     def _isf_for_links(self) -> dict[str, pd.Series]:
         """
-        Provides an ISF vector across all AC branches for each link k.
-        Default: balanced injection (+Δp at bus0, −Δp at bus1).
-        Optional: consider efficiency (+Δp at bus0, −ηΔp at bus1, slack compensates for mismatch).
+        ISF of bipolar link injection on every AC branch [MW/MW].
 
+        Default: +ΔP at bus0, −ΔP at bus1 (η=1). Index = `_branch_index`.
         """
         n = self.network
-        PTDF = self._get_ptdf_single()  # Lines x Buses
+        PTDF = self._get_ptdf_single()
         isf: dict[str, pd.Series] = {}
         for k in n.links.index:
             b0 = n.links.at[k, "bus0"]
             b1 = n.links.at[k, "bus1"]
             col0 = PTDF[b0] if b0 in PTDF.columns else pd.Series(0.0, index=PTDF.index)
             col1 = PTDF[b1] if b1 in PTDF.columns else pd.Series(0.0, index=PTDF.index)
-            s = (col0 - col1).astype(
-                float
-            )  # Index = reine Liniennamen (matcht n.lines.index)
-            isf[k] = s
+            isf[k] = (col0 - col1).astype(float)
         return isf
 
     def _lines_s_max(self) -> pd.Series:
-        n = self.network
-        return (n.lines["s_nom"] * n.lines["s_max_pu"].fillna(1.0)).astype(float)
+        """Line-only thermal ratings [MVA]; prefer `_branch_s_max` in guard paths."""
+        s = self._branch_s_max()
+        if s.empty or "Line" not in s.index.get_level_values(0):
+            return pd.Series(dtype=float)
+        return s.xs("Line", level="type")
 
     def _branch_index(self) -> pd.MultiIndex:
         """Active AC branches as MultiIndex (type, name): Line then Transformer."""
@@ -278,20 +255,16 @@ class N1Guard:
 
         margin = float(self.cfg.n1_guard_margin)
         eps_isf = 1e-8
+        branches = self._branch_index()
 
-        # Basis-DC-Flüsse
+        # Base DC flows [MW] and limits on all AC branches (lines + transformers)
         self._lpf_refresh(snapshot)
-        F_base = n.lines_t.p0.loc[snapshot].astype(float)
-        Pmax = self._lines_s_max() * margin
+        F_base = self._branch_p0(snapshot)
+        Pmax = self._branch_s_max() * margin
+        outages = self._resolve_outages()
 
-        outages = (
-            list(self.cfg.n1_guard_outages)
-            if self.cfg.n1_guard_outages
-            else list(n.lines.index)
-        )
-
-        BODF = self._get_bodf_single()  # Lines x Lines
-        isf_map = self._isf_for_links()  # dict[link] -> Series(Lines)
+        BODF = self._get_bodf_single()
+        isf_map = self._isf_for_links()
 
         any_violation = False
         link_intervals: dict[str, tuple[float, float]] = {
@@ -306,13 +279,12 @@ class N1Guard:
         }
 
         for o in outages:
-            # LODF-Spalte (BODF) für den Ausfall o
+            # LODF column for outage o; F_o = F_base + L[:,o] * F_base[o]
             if o in BODF.columns:
-                Lcol = BODF[o].reindex(n.lines.index).fillna(0.0)
-                # b-Vektor: Post-Contingency-Grundfluss ohne Link-Änderung
-                F_o = (F_base + Lcol * F_base.get(o, 0.0)).astype(float)
+                Lcol = BODF[o].reindex(branches).fillna(0.0)
+                F_o = (F_base + Lcol * float(F_base.get(o, 0.0))).astype(float)
             else:
-                Lcol = pd.Series(0.0, index=n.lines.index)
+                Lcol = pd.Series(0.0, index=branches)
                 F_o = F_base
 
             # Nur weiter, wenn dieser Ausfall überhaupt verletzt
@@ -322,12 +294,12 @@ class N1Guard:
             any_violation = True
 
             for k, ISF in isf_map.items():
-                # a-Vektor: Einfluss des Links im Ausfall o  => ISF(ℓ) + L_{ℓ,o}*ISF(o)
+                # a = ISF + L[:,o] * ISF[o]  (link sensitivity under outage o)
                 a_vec = (ISF + Lcol * float(ISF.get(o, 0.0))).astype(float)
 
                 lo_k, hi_k = link_intervals[k]
 
-                for ell in n.lines.index:
+                for ell in branches:
                     a = float(a_vec.get(ell, 0.0))
                     b = float(F_o.get(ell, 0.0))
                     lim = float(Pmax.get(ell, 0.0))
@@ -438,23 +410,19 @@ class N1Guard:
         return False
 
     def _is_safe_bodf(self, snapshot: object) -> bool:
-        n = self.network
+        """True if no branch exceeds Pmax under any resolved outage (DC, MW)."""
         margin = float(self.cfg.n1_guard_margin)
+        branches = self._branch_index()
         self._lpf_refresh(snapshot)
-        F = n.lines_t.p0.loc[snapshot].astype(float)
-        Pmax = self._lines_s_max() * margin
-
-        outages = (
-            list(self.cfg.n1_guard_outages)
-            if self.cfg.n1_guard_outages
-            else list(n.lines.index)
-        )
-        BODF = self._get_bodf_single()  # Lines x Lines
+        F = self._branch_p0(snapshot)
+        Pmax = self._branch_s_max() * margin
+        outages = self._resolve_outages()
+        BODF = self._get_bodf_single()
 
         for o in outages:
             if o in BODF.columns:
-                F_o = (F + BODF[o] * F.get(o, 0.0)).reindex(
-                    n.lines.index, fill_value=0.0
+                F_o = (F + BODF[o] * float(F.get(o, 0.0))).reindex(
+                    branches, fill_value=0.0
                 )
             else:
                 F_o = F
