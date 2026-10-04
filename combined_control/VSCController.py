@@ -33,7 +33,7 @@ class ControllerConfig:
         -n1_guard_max_iter:
         -n1_guard_outages:
         -slack_bus: optional override of the angle-reference bus; None keeps the network Slack
-        -distributed_slack: PyPSA AC pf shares mismatch (slack_weights=p_set); DC PTDF stays single-slack
+        -distributed_slack: P-opt and AC pf share P mismatch by p_set; Slack bus is θ=0 only; DC PTDF stays single-slack
 
     """
 
@@ -103,7 +103,7 @@ class VSCController:
         }
 
     def _apply_slack(self) -> None:
-        """Set generator control from cfg.slack_bus, or warn if no Slack exists."""
+        """Apply config slack, else keep CSV Slack, else mark the largest generator."""
         n = self.network
         bus = self.cfg.slack_bus
         if bus is not None:
@@ -111,8 +111,13 @@ class VSCController:
             on_bus = n.generators.index[n.generators.bus == bus]
             n.generators.at[on_bus[0], "control"] = "Slack"
             return
-        if not (n.generators.control == "Slack").any():
-            print("Slack definition missing")
+        if (n.generators.control == "Slack").any():
+            return
+        size = n.generators["p_nom"].fillna(0.0).astype(float)
+        if float(size.max()) <= 0.0:
+            size = n.generators["p_set"].fillna(0.0).astype(float)
+        n.generators.at[size.idxmax(), "control"] = "Slack"
+        print("Warning: slack not explicitly defined--> set to largest generator")
 
     # Callback method for power flow counter
     def pf_callback(self) -> None:
@@ -195,6 +200,7 @@ class VSCController:
             lpf_callback=self.lpf_callback,
             max_line_loading=effective_mll,  # <-- directly to pyomo-model
             guard_active=self.cfg.n1_guard_enable,
+            distributed_slack=self.cfg.distributed_slack,
         )
 
         # Debug

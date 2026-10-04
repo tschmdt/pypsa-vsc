@@ -237,7 +237,7 @@ def main() -> None:
         n1_guard_margin=0.95,
         n1_guard_max_passes=3,
         slack_bus="Bus 9",
-        distributed_slack=False,
+        distributed_slack=True,
     )
     ctl = VSCController(n, config=cfg)
     ctl.run_mode(mode="combined")

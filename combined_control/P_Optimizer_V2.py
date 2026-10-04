@@ -45,6 +45,7 @@ def link_optimization(
     detail_level=None,
     snapshots="all",
     guard_active: bool = False,
+    distributed_slack: bool = False,
 ):
     print("[link_opt] target:", getattr(network, "_whoami", "unknown"), id(network))
 
@@ -176,6 +177,26 @@ def link_optimization(
         else:
             gen_p = network.generators.groupby("bus")["p_set"].sum().to_dict()
 
+        # w_g from p_set (PyPSA default); fallback p_nom, then 1/N. Aggregated to buses.
+        slack_w_bus: dict[str, float] = {}
+        if distributed_slack:
+            gens = network.generators
+            if "p_set" in getattr(network.generators_t, "_series", {}):
+                w = (
+                    network.generators_t.p_set.loc[snapshot]
+                    .reindex(gens.index)
+                    .fillna(0.0)
+                    .astype(float)
+                )
+            else:
+                w = gens["p_set"].fillna(0.0).astype(float)
+            if float(w.sum()) == 0.0:
+                w = gens["p_nom"].fillna(0.0).astype(float)
+            if float(w.sum()) == 0.0:
+                w = pd.Series(1.0, index=gens.index)
+            w = w / float(w.sum())
+            slack_w_bus = w.groupby(gens.bus).sum().to_dict()
+
         if "p_set" in getattr(network.loads_t, "_series", {}):
             load_p = (
                 network.loads_t.p_set.loc[snapshot]
@@ -256,8 +277,11 @@ def link_optimization(
         model.DirPos = pyo.Constraint(model.K, rule=dir_pos_rule)
         model.DirNeg = pyo.Constraint(model.K, rule=dir_neg_rule)
 
-        # Slack Generator Power
-        model.p_slack_gen = pyo.Var(model.S, bounds=lambda m, b: (-10000, 10000))
+        # Slack P [MW]: False = free P on Slack buses; True = one Δ shared by w_g.
+        if distributed_slack:
+            model.p_mismatch = pyo.Var(bounds=(-10000.0, 10000.0))
+        else:
+            model.p_slack_gen = pyo.Var(model.S, bounds=lambda m, b: (-10000, 10000))
 
         # 7. Constraints using Construction Rules
 
@@ -286,7 +310,9 @@ def link_optimization(
 
         # Node Balance
         def node_balance_rule(m, b):
-            if b in model.S:
+            if distributed_slack:
+                gen = gen_p.get(b, 0) + slack_w_bus.get(b, 0.0) * m.p_mismatch
+            elif b in model.S:
                 gen = model.p_slack_gen[b] + gen_p.get(b, 0)
             else:
                 gen = gen_p.get(b, 0)
@@ -382,7 +408,7 @@ def link_optimization(
         #         "InfUnbdInfo": 1,
         #     },
         # )
-        
+
         # SCIP via pyscipopt (Pyomo direct interface; open-source MIQP-capable).
         # Pyomo already epigraph-reformulates the quadratic objective for SCIP.
         result = _solve_scip_direct(model, tee=False, timelimit=60.0)
