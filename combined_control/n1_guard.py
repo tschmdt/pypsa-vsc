@@ -173,6 +173,83 @@ class N1Guard:
         n = self.network
         return (n.lines["s_nom"] * n.lines["s_max_pu"].fillna(1.0)).astype(float)
 
+    def _branch_index(self) -> pd.MultiIndex:
+        """Active AC branches as MultiIndex (type, name): Line then Transformer."""
+        n = self.network
+        keys = [("Line", name) for name in n.lines.index] + [
+            ("Transformer", name) for name in n.transformers.index
+        ]
+        return pd.MultiIndex.from_tuples(keys, names=["type", "name"])
+
+    def _branch_p0(self, snapshot: object) -> pd.Series:
+        """DC branch flow p0 at snapshot [MW], indexed by `_branch_index`."""
+        n = self.network
+        parts: list[pd.Series] = []
+        if not n.lines.empty:
+            s = n.lines_t.p0.loc[snapshot].astype(float)
+            s.index = pd.MultiIndex.from_product(
+                [["Line"], s.index], names=["type", "name"]
+            )
+            parts.append(s)
+        if not n.transformers.empty:
+            s = n.transformers_t.p0.loc[snapshot].astype(float)
+            s.index = pd.MultiIndex.from_product(
+                [["Transformer"], s.index], names=["type", "name"]
+            )
+            parts.append(s)
+        if not parts:
+            return pd.Series(dtype=float)
+        return pd.concat(parts).reindex(self._branch_index()).astype(float)
+
+    def _branch_s_max(self) -> pd.Series:
+        """Thermal rating s_nom * s_max_pu [MVA≈MW in DC], indexed by `_branch_index`."""
+        n = self.network
+        parts: list[pd.Series] = []
+        if not n.lines.empty:
+            s = (n.lines["s_nom"] * n.lines["s_max_pu"].fillna(1.0)).astype(float)
+            s.index = pd.MultiIndex.from_product(
+                [["Line"], s.index], names=["type", "name"]
+            )
+            parts.append(s)
+        if not n.transformers.empty:
+            s = (
+                n.transformers["s_nom"] * n.transformers["s_max_pu"].fillna(1.0)
+            ).astype(float)
+            s.index = pd.MultiIndex.from_product(
+                [["Transformer"], s.index], names=["type", "name"]
+            )
+            parts.append(s)
+        if not parts:
+            return pd.Series(dtype=float)
+        return pd.concat(parts).reindex(self._branch_index()).astype(float)
+
+    def _resolve_outages(self) -> pd.MultiIndex:
+        """
+        Contingency set as MultiIndex (type, name).
+
+        Default: all lines and transformers. Configured strings map to the unique
+        branch with that name; tuples `(type, name)` are used directly. Ambiguous
+        or missing entries are skipped.
+        """
+        branches = self._branch_index()
+        cfg_outages = self.cfg.n1_guard_outages
+        if not cfg_outages:
+            return branches
+
+        resolved: list[tuple[str, str]] = []
+        for o in cfg_outages:
+            if isinstance(o, tuple) and len(o) == 2:
+                key = (str(o[0]), str(o[1]))
+                if key in branches:
+                    resolved.append(key)
+                continue
+            matches = [b for b in branches if b[1] == o]
+            if len(matches) == 1:
+                resolved.append(matches[0])
+        if not resolved:
+            return pd.MultiIndex.from_tuples([], names=branches.names)
+        return pd.MultiIndex.from_tuples(resolved, names=branches.names)
+
     def _lpf_refresh(self, snapshot: object) -> None:
         """Ensures that p0 is up to date (DC flows at the armature/intermediate point)"""
         self.network.lpf(snapshot)
@@ -329,9 +406,7 @@ class N1Guard:
             constraints = link_constraints.get(k, [])
             if cands and constraints:
                 candidates = [0.0]
-                candidates += [
-                    min(max(dP_raw, dP_lo_hw), dP_hi_hw) for dP_raw in cands
-                ]
+                candidates += [min(max(dP_raw, dP_lo_hw), dP_hi_hw) for dP_raw in cands]
 
                 def worst_overload(dP: float) -> float:
                     return max(
