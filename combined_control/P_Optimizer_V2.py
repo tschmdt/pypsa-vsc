@@ -528,6 +528,10 @@ def link_optimization(
             print(
                 f"\n P-optimization NOT successfull for snapshot {snapshot}: {result.solver.termination_condition}"
             )
+            print(
+                "P-opt infeasible — link p_set left unchanged. "
+                "Check generator p_set, thermal limits, and the angle box."
+            )
             results[snapshot] = {"status": "failed"}
             continue
         print("\n P-optimization successfull.")

@@ -206,8 +206,14 @@ def print_slack_mismatch(n: pypsa.Network, snapshot: object, distributed: bool) 
     p = n.generators_t.p.loc[snapshot].astype(float)
     dp = p - p_set
     delta = float(dp.sum())
+    scheduled = float(p_set.sum())
+    load = float(n.loads["p_set"].astype(float).sum())
     mode = "distributed, weights p_set" if distributed else "single Slack"
     print("\n=== Slack mismatch ===")
+    print(
+        f"scheduled sum p_set = {scheduled:.2f} MW, load = {load:.2f} MW "
+        f"(Δ = load + losses − scheduled)."
+    )
     print(f"Δ = {delta:+.2f} MW ({mode}; + = extra generation).")
     used = (
         n.generators.index
@@ -250,7 +256,7 @@ def main() -> None:
         n1_guard_margin=0.95,
         n1_guard_max_passes=3,
         slack_bus="Bus 9",
-        distributed_slack=True,
+        distributed_slack=False,
     )
     n = build_cigre_vhl()
     snap = n.snapshots[0]
