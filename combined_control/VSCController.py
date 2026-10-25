@@ -144,6 +144,7 @@ class VSCController:
         pf_first: bool = False,
         max_line_loading: float | None = None,
         run_vsi: bool | None = None,
+        apply_guard: bool = True,
     ):
         """
         -runs the P-Optimization script optionalli with vsi calulation
@@ -199,7 +200,7 @@ class VSCController:
             pf_callback=self.pf_callback,
             lpf_callback=self.lpf_callback,
             max_line_loading=effective_mll,  # <-- directly to pyomo-model
-            guard_active=self.cfg.n1_guard_enable,
+            guard_active=False,
             distributed_slack=self.cfg.distributed_slack,
         )
 
@@ -209,15 +210,14 @@ class VSCController:
         print("PTDF sample:\n", PTDF.loc[PTDF.index[:5], PTDF.columns[:5]])
         print("BODF sample:\n", BODF.iloc[:5, :5])
 
-        # Use N-1 Guard
-        if self.cfg.n1_guard_enable:
-            for snap in self.network.snapshots:
-                self.enforce_n1_guard(snap)
-            self.pf_callback()
+        # Guard after P only. combined skips this and guards after Q.
+        ran_guard = apply_guard and self.cfg.n1_guard_enable
+        if ran_guard:
+            self._run_n1_guard(rerun_q=False)
 
         self._apply_q_limits_from_p(self.network.links["p_set"].astype(float))
 
-        if self.cfg.n1_guard_enable:
+        if ran_guard:
             if show_report:
                 show_snapshot_report_after_guard(
                     self.p_result, self.network, report_snapshots
@@ -325,8 +325,11 @@ class VSCController:
             print("\n === Initial pf() ===")
             self.pf_callback()
 
-        self.p_result = self.run_p_control(angle_limit_deg=angle_limit_deg)
+        self.p_result = self.run_p_control(
+            angle_limit_deg=angle_limit_deg, apply_guard=False
+        )
         self.q_result, vsi_after_P, vsi_opt = self.run_q_control()
+        self._run_n1_guard(rerun_q=True)
 
     # Method call to control and dictate the converter behaviour
     def run_mode(
@@ -365,6 +368,7 @@ class VSCController:
                 angle_limit_deg=effective_angle,
                 pf_first=True,
                 max_line_loading=effective_mll,
+                apply_guard=False,
             )
             self._update_vsc_limits(
                 S_rated=S_rated, Q_reserve=Q_reserve, set_q_limits=True
@@ -372,6 +376,7 @@ class VSCController:
             print(self.network.controllable_vscs[["q_min", "q_max", "q_set"]])
 
             self.run_q_control()
+            self._run_n1_guard(rerun_q=True)
             result = (self.p_result, self.q_result)
 
         elif mode == "P_control":
@@ -391,6 +396,7 @@ class VSCController:
             S_eff = self.cfg.S_rated if S_rated is None else S_rated
             self._update_vsc_limits(S_rated=S_eff, Q_reserve=S_eff, set_q_limits=True)
             self.q_result, vsi_after_P, vsi_opt = self.run_q_control(pf_first=True)
+            self._run_n1_guard(rerun_q=True)
             result = (self.q_result, vsi_after_P, vsi_opt)
 
         else:
@@ -507,6 +513,28 @@ class VSCController:
     def _get_subnetwork_for_line(self, line: str) -> Any:
         # Alias für alte Aufrufe – wir arbeiten bewusst mit einem EINZIGEN AC-Subnetz
         return self.n1_guard._get_sn_single()
+
+    def _run_n1_guard(self, rerun_q: bool) -> None:
+        """
+        Preventive guard after the optimizers that ran.
+
+        Link p_set is MW, bus0 → bus1. A change refreshes Q limits [MVAr]
+        from S_rated² = P² + Q². AC pf follows, because the guard's lpf
+        replaces the AC solution.
+        """
+        if not self.cfg.n1_guard_enable or self.network.links.empty:
+            return
+        p_before = self.network.links["p_set"].astype(float).copy()
+        for snap in self.network.snapshots:
+            self.enforce_n1_guard(snap)
+        self.pf_callback()
+        p_after = self.network.links["p_set"].astype(float)
+        changed = float((p_after - p_before).abs().max()) > 1e-6
+        if not changed:
+            return
+        self._apply_q_limits_from_p(p_after)
+        if rerun_q:
+            self.run_q_control()
 
     def enforce_n1_guard(self, snapshot: object) -> bool:
         return self.n1_guard.enforce_n1_guard(snapshot)
