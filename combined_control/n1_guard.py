@@ -239,6 +239,88 @@ class N1Guard:
         hi = (limit - b) / a
         return (min(lo, hi), max(lo, hi))
 
+    def _store_joint_rows(
+        self,
+        outages: pd.MultiIndex,
+        branches: pd.Index,
+        f_base: pd.Series,
+        pmax: pd.Series,
+        bodf: pd.DataFrame,
+        isf_map: dict[str, pd.Series],
+    ) -> None:
+        """
+        Record each finite (outage, branch) row and classify it. Not applied yet.
+
+        b [MW] is the post-contingency DC flow. limit [MW] is
+        s_nom · s_max_pu · margin. a_k [MW/MW] is ISF_k + L[:,o] · ISF_k[o],
+        with p_set > 0 withdrawing at bus0 and injecting at bus1 (η = 1).
+        A pair is influenceable when the converter box can reduce |b| by at
+        least 0.05 · limit. The outaged branch is omitted.
+        """
+        n = self.network
+        room_down: dict[str, float] = {}
+        room_up: dict[str, float] = {}
+        for k in isf_map:
+            p_nom = float(n.links.at[k, "p_nom"]) if "p_nom" in n.links.columns else 0.0
+            p_now = float(n.links.at[k, "p_set"]) if "p_set" in n.links.columns else 0.0
+            pmin_pu = (
+                float(n.links.at[k, "p_min_pu"])
+                if "p_min_pu" in n.links.columns
+                else -1.0
+            )
+            pmax_pu = (
+                float(n.links.at[k, "p_max_pu"])
+                if "p_max_pu" in n.links.columns
+                else 1.0
+            )
+            if p_nom <= 0.0:
+                room_down[k] = 0.0
+                room_up[k] = 0.0
+                continue
+            room_down[k] = max(p_now - p_nom * pmin_pu, 0.0)
+            room_up[k] = max(p_nom * pmax_pu - p_now, 0.0)
+
+        rows: dict[tuple[object, object], tuple[float, float, dict[str, float]]] = {}
+        influenceable: set[tuple[object, object]] = set()
+        protected: set[tuple[object, object]] = set()
+        for o in outages:
+            if o in bodf.columns:
+                lcol = bodf[o].reindex(branches).fillna(0.0)
+                f_o = (f_base + lcol * float(f_base.get(o, 0.0))).astype(float)
+            else:
+                lcol = pd.Series(0.0, index=branches)
+                f_o = f_base
+            a_by_link = {
+                k: (isf + lcol * float(isf.get(o, 0.0))).astype(float)
+                for k, isf in isf_map.items()
+            }
+            for ell in branches:
+                if ell == o:
+                    continue
+                b = float(f_o.get(ell, 0.0))
+                lim = float(pmax.get(ell, 0.0))
+                if lim <= 0.0 or not math.isfinite(lim) or not math.isfinite(b):
+                    continue
+                a_row = {
+                    k: float(a_vec.get(ell, 0.0)) for k, a_vec in a_by_link.items()
+                }
+                sign_b = 1.0 if b > 0.0 else (-1.0 if b < 0.0 else 0.0)
+                relief = 0.0
+                for k, a in a_row.items():
+                    if sign_b == 0.0 or a == 0.0:
+                        continue
+                    room = room_down[k] if sign_b * a > 0.0 else room_up[k]
+                    relief += abs(a) * room
+                key = (o, ell)
+                rows[key] = (b, lim, a_row)
+                if relief + 1e-9 >= 0.05 * lim:
+                    influenceable.add(key)
+                else:
+                    protected.add(key)
+        self._joint_rows = rows
+        self._influenceable_pairs = influenceable
+        self._protected_pairs = protected
+
     def _enforce_n1_guard_once(self, snapshot: object) -> bool:
         """
         Prüft N-1 (per BODF) und verschiebt Link-p_set minimal (via ISF-Intervalle).
@@ -261,6 +343,7 @@ class N1Guard:
 
         BODF = self._get_bodf_single()
         isf_map = self._isf_for_links()
+        self._store_joint_rows(outages, branches, F_base, Pmax, BODF, isf_map)
 
         any_violation = False
         link_intervals: dict[str, tuple[float, float]] = {
