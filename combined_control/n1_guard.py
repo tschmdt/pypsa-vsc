@@ -123,9 +123,10 @@ class N1Guard:
 
     def _isf_for_links(self) -> dict[str, pd.Series]:
         """
-        ISF of bipolar link injection on every AC branch [MW/MW].
+        ISF of a link setpoint step on every AC branch [MW/MW].
 
-        Default: +ΔP at bus0, −ΔP at bus1 (η=1). Index = `_branch_index`.
+        p_set > 0 withdraws ΔP at bus0 and injects ΔP at bus1 (η=1), so
+        ISF = PTDF[:, bus1] − PTDF[:, bus0]. Index = `_branch_index`.
         """
         n = self.network
         PTDF = self._get_ptdf_single()
@@ -135,7 +136,7 @@ class N1Guard:
             b1 = n.links.at[k, "bus1"]
             col0 = PTDF[b0] if b0 in PTDF.columns else pd.Series(0.0, index=PTDF.index)
             col1 = PTDF[b1] if b1 in PTDF.columns else pd.Series(0.0, index=PTDF.index)
-            isf[k] = (col0 - col1).astype(float)
+            isf[k] = (col1 - col0).astype(float)
         return isf
 
     def _lines_s_max(self) -> pd.Series:

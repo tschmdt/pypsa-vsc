@@ -14,6 +14,11 @@ Differences to the paper:
 - all buses are modelled at 132 kV, the transformer tap ratios are kept
 - the links are lossless
 
+WP0b check, three VHLs. With the J cap on, the guard may move the optimized
+setpoints, but only while J stays within 10% of that point and the worst
+post-contingency loading falls by at least 5 percentage points. Set
+n1_guard_j_cap=False to see the unrestricted interval step.
+
 Run with: uv run python examples/ieee14dc.py
 """
 
@@ -364,6 +369,9 @@ cfg = ControllerConfig(
     max_line_loading=0.90,
     S_rated=P_NOM_LINK,
     n1_guard_enable=True,  # set False to skip preventive guard
+    n1_guard_j_cap=True,  # set False for the unrestricted interval step
+    n1_guard_margin=0.98,
+    n1_guard_max_passes=3,
 )
 
 controller = VSCController(n, config=cfg)
@@ -457,7 +465,7 @@ df_link_setpoints = pd.DataFrame(
     {
         "p_set initial [MW]": p_set_initial.reindex(n.links.index),
         "p_set opt [MW]": p_set_opt,
-        "dP corrective [MW]": dP_corrective,
+        "guard dP [MW]": dP_corrective,
         "p_set after guard [MW]": p_set_guard,
         "p0 final [MW]": n.links_t.p0.loc[snap],
     }
@@ -470,7 +478,7 @@ print(df_loadings.round(2))
 print("\n=== Link / VSC active-power setpoints ===")
 print(df_link_setpoints.round(3))
 print(
-    f"\nCorrective step size |dP| max = {float(dP_corrective.abs().max()):.3f} MW, "
+    f"\nGuard |dP| max = {float(dP_corrective.abs().max()):.3f} MW, "
     f"sum |dP| = {float(dP_corrective.abs().sum()):.3f} MW"
 )
 
