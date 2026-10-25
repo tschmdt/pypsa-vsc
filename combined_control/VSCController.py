@@ -32,6 +32,7 @@ class ControllerConfig:
         -n1_guard_tol:
         -n1_guard_max_iter:
         -n1_guard_outages:
+        -n1_guard_j_cap: if True (default), a guard ΔP may raise J = Σ (p0/s_nom)² by at most 10%
         -slack_bus: optional override of the angle-reference bus; None keeps the network Slack
         -distributed_slack: P-opt and AC pf share P mismatch by p_set; Slack bus is θ=0 only; DC PTDF stays single-slack
 
@@ -52,6 +53,7 @@ class ControllerConfig:
     n1_guard_tol: float = 0.0
     n1_guard_max_passes: int = 3
     n1_guard_outages: list[str] | None = None
+    n1_guard_j_cap: bool = True
     slack_bus: str | None = None
     distributed_slack: bool = False
 

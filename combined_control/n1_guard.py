@@ -328,6 +328,11 @@ class N1Guard:
             return True
 
         changed = False
+        # J_opt is the post-optimization DC point. Later links see the flows
+        # after earlier trims, so the +10% is one budget, not 10% per link.
+        s_nom = self._branch_s_nom()
+        j_opt = self._j_loading(F_base, s_nom)
+        f_work = F_base.astype(float).copy()
 
         # Anwenden: erst Hardware-Grenzen schneiden, dann ΔP wählen.
         for k, (lo, hi) in link_intervals.items():
@@ -350,49 +355,112 @@ class N1Guard:
             dP_lo_hw = p_nom * pmin_pu - p_now
             dP_hi_hw = p_nom * pmax_pu - p_now
 
-            # 1) Falls globaler Schnitt NICHT leer und 0 NICHT enthalten:
+            # 1) Globaler Schnitt nicht leer und 0 nicht enthalten: kleinstes |ΔP|.
+            dP = 0.0
+            took_interval = False
             if lo <= hi and not (lo <= 0.0 <= hi):
                 lo_clip = max(lo, dP_lo_hw)
                 hi_clip = min(hi, dP_hi_hw)
                 if lo_clip <= hi_clip:
                     dP = lo_clip if abs(lo_clip) < abs(hi_clip) else hi_clip
-                    # anwenden
-                    p_new = p_now + dP
-                    n.links.loc[k, "p_set"] = p_new
-                    if n.links_t.p_set.empty:
-                        ensure_link_pset_timeseries(n)
-                    n.links_t.p_set.loc[snapshot, k] = p_new
-                    changed = True
-                    continue  # zum nächsten Link
+                    took_interval = True
 
-            # 2) Fallback: kein vollständig zulässiger Schnitt.
-            #    Wähle innerhalb der Hardwaregrenzen das Kandidaten-ΔP, das die
-            #    größte verbleibende relative Überlast möglichst klein macht.
-            cands = link_candidates.get(k, [])
+            # 2) Fallback, nur wenn der Schnitt kein ΔP geliefert hat.
             constraints = link_constraints.get(k, [])
-            if cands and constraints:
-                candidates = [0.0]
-                candidates += [min(max(dP_raw, dP_lo_hw), dP_hi_hw) for dP_raw in cands]
-
-                def worst_overload(dP: float) -> float:
-                    return max(
-                        max(abs(b + a * dP) - lim, 0.0) / max(lim, 1e-12)
-                        for a, b, lim in constraints
+            if not took_interval:
+                cands = link_candidates.get(k, [])
+                if cands and constraints:
+                    candidates = [0.0]
+                    candidates += [
+                        min(max(dP_raw, dP_lo_hw), dP_hi_hw) for dP_raw in cands
+                    ]
+                    dP = min(
+                        candidates,
+                        key=lambda x: (
+                            self._worst_rel_overload(x, constraints),
+                            abs(x),
+                        ),
                     )
 
-                dP = min(candidates, key=lambda x: (worst_overload(x), abs(x)))
-
-                if abs(dP) > 0.0:
-                    p_new = p_now + dP
-                    n.links.loc[k, "p_set"] = p_new
-                    if n.links_t.p_set.empty:
-                        ensure_link_pset_timeseries(n)
-                    n.links_t.p_set.loc[snapshot, k] = p_new
-                    changed = True
+            if abs(dP) <= 1e-9:
+                continue
+            dP = self._cap_link_dp(dP, f_work, isf_map[k], s_nom, j_opt, constraints)
+            if abs(dP) <= 1e-9:
+                continue
+            p_new = p_now + dP
+            n.links.loc[k, "p_set"] = p_new
+            if n.links_t.p_set.empty:
+                ensure_link_pset_timeseries(n)
+            n.links_t.p_set.loc[snapshot, k] = p_new
+            f_work = f_work + isf_map[k].reindex(f_work.index).fillna(0.0) * dP
+            changed = True
 
         if changed:
             self._lpf_refresh(snapshot)
         return changed
+
+    def _branch_s_nom(self) -> pd.Series:
+        """Branch s_nom [MVA], indexed like `_branch_index`."""
+        n = self.network
+        parts: list[pd.Series] = []
+        if not n.lines.empty:
+            s = n.lines["s_nom"].astype(float)
+            s.index = pd.MultiIndex.from_product(
+                [["Line"], s.index], names=["type", "name"]
+            )
+            parts.append(s)
+        if not n.transformers.empty:
+            s = n.transformers["s_nom"].astype(float)
+            s.index = pd.MultiIndex.from_product(
+                [["Transformer"], s.index], names=["type", "name"]
+            )
+            parts.append(s)
+        if not parts:
+            return pd.Series(dtype=float)
+        return pd.concat(parts).reindex(self._branch_index()).astype(float)
+
+    def _j_loading(self, flow_mw: pd.Series, s_nom: pd.Series) -> float:
+        """J = Σ (p0/s_nom)². p0 [MW], s_nom [MVA]. Zero ratings are left out."""
+        s = s_nom.reindex(flow_mw.index).astype(float)
+        use = s > 0.0
+        ratio = flow_mw.loc[use] / s.loc[use]
+        return float((ratio**2).sum())
+
+    def _worst_rel_overload(
+        self, dP: float, constraints: list[tuple[float, float, float]]
+    ) -> float:
+        """Worst max(|b + a·ΔP| − lim, 0) / lim. ΔP, b, lim in MW."""
+        if not constraints:
+            return 0.0
+        return max(
+            max(abs(b + a * dP) - lim, 0.0) / max(lim, 1e-12)
+            for a, b, lim in constraints
+        )
+
+    def _cap_link_dp(
+        self,
+        dP: float,
+        flow_mw: pd.Series,
+        isf: pd.Series,
+        s_nom: pd.Series,
+        j_opt: float,
+        constraints: list[tuple[float, float, float]],
+    ) -> float:
+        """
+        Largest fraction of ΔP [MW], same sign, with J ≤ 1.10 J_opt and a
+        lower worst post-contingency overload. Off: return ΔP unchanged.
+        """
+        if not self.cfg.n1_guard_j_cap or abs(dP) <= 1e-9 or not constraints:
+            return dP
+        base_over = self._worst_rel_overload(0.0, constraints)
+        isf_aligned = isf.reindex(flow_mw.index).fillna(0.0)
+        for i in range(20, 0, -1):
+            trial = dP * (i / 20.0)
+            j = self._j_loading(flow_mw + isf_aligned * trial, s_nom)
+            over = self._worst_rel_overload(trial, constraints)
+            if j <= 1.10 * j_opt + 1e-9 and over < base_over - 1e-9:
+                return trial
+        return 0.0
 
     def enforce_n1_guard(self, snapshot: object) -> bool:
         if not self.cfg.n1_guard_enable:
