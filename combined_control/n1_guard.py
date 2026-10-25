@@ -353,7 +353,9 @@ class N1Guard:
         the limit or that the box can push over it. Protected pairs that the
         box can raise to the current worst protected loading stay at or below
         that loading. If that program is infeasible: minimize the worst
-        predicted influenceable loading, then t. ΔP is MW from p_set.
+        predicted influenceable loading, then t. Either min-t solution is then
+        replaced by the smallest Σ ΔP_k² inside t ≤ t* + 1e-6. ΔP and t are MW
+        from p_set. Σ ΔP_k² is MW² and is not added to t.
         """
         import pyomo.environ as pyo
         from pyomo.opt import TerminationCondition
@@ -460,9 +462,21 @@ class N1Guard:
         def read(model: pyo.ConcreteModel) -> dict[str, float]:
             return {k: float(pyo.value(model.dP[k])) for k in links}
 
+        def polish(model: pyo.ConcreteModel) -> dict[str, float]:
+            t_star = float(pyo.value(model.t))
+            model.t_freeze = pyo.Constraint(expr=model.t <= t_star + 1e-6)
+            model.del_component(model.obj)
+            model.obj = pyo.Objective(
+                expr=sum(model.dP[k] ** 2 for k in links),
+                sense=pyo.minimize,
+            )
+            if not solved(model):
+                raise RuntimeError("Guard coordination could not minimize Σ ΔP².")
+            return read(model)
+
         first = build(min_t=True, security_on=True, u_cap=None)
         if solved(first):
-            return read(first)
+            return polish(first)
         relief = build(min_t=False, security_on=False, u_cap=None)
         if not solved(relief):
             raise RuntimeError("Guard coordination has no feasible partial step.")
@@ -470,7 +484,7 @@ class N1Guard:
         second = build(min_t=True, security_on=False, u_cap=u_star + 1e-6)
         if not solved(second):
             raise RuntimeError("Guard coordination could not minimize t.")
-        return read(second)
+        return polish(second)
 
     def _enforce_n1_guard_once(self, snapshot: object) -> bool:
         """
