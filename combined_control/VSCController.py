@@ -32,7 +32,7 @@ class ControllerConfig:
         -n1_guard_tol:
         -n1_guard_max_iter:
         -n1_guard_outages:
-        -n1_guard_j_cap: if True (default), a guard ΔP may raise J by at most 10%. J is Σ (p0/s_nom)² on lines and transformers, the same sum as P-opt
+        -n1_guard_j_cap: if True (default), a guard ΔP is kept only when J stays within 10% of the pre-guard point and the worst post-contingency loading falls by at least 5 percentage points. J is Σ (p0/s_nom)² on lines and transformers, the same sum as P-opt
         -slack_bus: optional override of the angle-reference bus; None keeps the network Slack
         -distributed_slack: P-opt and AC pf share P mismatch by p_set; Slack bus is θ=0 only; DC PTDF stays single-slack
 
@@ -524,19 +524,38 @@ class VSCController:
         from S_rated² = P² + Q². AC pf follows, because the guard's lpf
         replaces the AC solution.
         """
-        if not self.cfg.n1_guard_enable or self.network.links.empty:
+        if self.network.links.empty:
             return
         p_before = self.network.links["p_set"].astype(float).copy()
+        if not self.cfg.n1_guard_enable:
+            self._print_guard_correction(p_before, p_before)
+            return
         for snap in self.network.snapshots:
             self.enforce_n1_guard(snap)
         self.pf_callback()
         p_after = self.network.links["p_set"].astype(float)
+        self._print_guard_correction(p_before, p_after)
         changed = float((p_after - p_before).abs().max()) > 1e-6
         if not changed:
             return
         self._apply_q_limits_from_p(p_after)
         if rerun_q:
             self.run_q_control()
+
+    def _print_guard_correction(self, p_before: pd.Series, p_after: pd.Series) -> None:
+        """Print link p_set [MW] before and after the guard. Positive is bus0 to bus1."""
+        print("\n=== N-1 guard correction ===")
+        if not self.cfg.n1_guard_enable:
+            print("Guard off. Link setpoints were not corrected.")
+            return
+        cap = "on" if self.cfg.n1_guard_j_cap else "off"
+        print(f"J cap {cap}. Link p_set [MW], positive bus0 to bus1:")
+        for k in p_before.index:
+            before = float(p_before[k])
+            after = float(p_after[k])
+            print(
+                f"  {k}: {before:.2f} -> {after:.2f}  (correction {after - before:+.2f})"
+            )
 
     def enforce_n1_guard(self, snapshot: object) -> bool:
         return self.n1_guard.enforce_n1_guard(snapshot)

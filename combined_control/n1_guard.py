@@ -1,3 +1,4 @@
+import math
 from typing import Any
 
 import pandas as pd
@@ -328,10 +329,10 @@ class N1Guard:
             return True
 
         changed = False
-        # J_opt is the post-optimization DC point. Later links see the flows
-        # after earlier trims, so the +10% is one budget, not 10% per link.
+        # J_opt is frozen at the pre-guard point for every pass. Later links
+        # see the flows after earlier trims, so the +10% is one budget.
         s_nom = self._branch_s_nom()
-        j_opt = self._j_loading(F_base, s_nom)
+        j_opt = self._j_opt_frozen
         f_work = F_base.astype(float).copy()
 
         # Anwenden: erst Hardware-Grenzen schneiden, dann ΔP wählen.
@@ -450,6 +451,22 @@ class N1Guard:
             for a, b, lim in constraints
         )
 
+    def _worst_loading_pu(
+        self, dP: float, constraints: list[tuple[float, float, float]]
+    ) -> float:
+        """Worst |b + a·ΔP| / lim. 1.36 means 136% of the branch limit."""
+        finite = [
+            (a, b, lim)
+            for a, b, lim in constraints
+            if lim > 0.0
+            and math.isfinite(a)
+            and math.isfinite(b)
+            and math.isfinite(lim)
+        ]
+        if not finite:
+            return 0.0
+        return max(abs(b + a * dP) / lim for a, b, lim in finite)
+
     def _cap_link_dp(
         self,
         dP: float,
@@ -461,23 +478,29 @@ class N1Guard:
     ) -> float:
         """
         Largest fraction of ΔP [MW], same sign, with J ≤ 1.10 J_opt and a
-        lower worst post-contingency overload. Off: return ΔP unchanged.
+        drop of at least 0.05 in the worst |F|/limit. Off: return ΔP unchanged.
         """
-        if not self.cfg.n1_guard_j_cap or abs(dP) <= 1e-9 or not constraints:
+        if not self.cfg.n1_guard_j_cap or abs(dP) <= 1e-9:
             return dP
-        base_over = self._worst_rel_overload(0.0, constraints)
+        base_loading = self._worst_loading_pu(0.0, constraints)
+        if base_loading <= 0.0:
+            return 0.0
         isf_aligned = isf.reindex(flow_mw.index).fillna(0.0)
         for i in range(20, 0, -1):
             trial = dP * (i / 20.0)
             j = self._j_loading(flow_mw + isf_aligned * trial, s_nom)
-            over = self._worst_rel_overload(trial, constraints)
-            if j <= 1.10 * j_opt + 1e-9 and over < base_over - 1e-9:
+            loading = self._worst_loading_pu(trial, constraints)
+            if j <= 1.10 * j_opt + 1e-9 and base_loading - loading >= 0.05:
                 return trial
         return 0.0
 
     def enforce_n1_guard(self, snapshot: object) -> bool:
         if not self.cfg.n1_guard_enable:
             return True
+        self._lpf_refresh(snapshot)
+        self._j_opt_frozen = self._j_loading(
+            self._branch_p0(snapshot), self._branch_s_nom()
+        )
         for _ in range(int(self.cfg.n1_guard_max_passes)):
             self._enforce_n1_guard_once(snapshot)
             if self._is_safe_bodf(snapshot):
