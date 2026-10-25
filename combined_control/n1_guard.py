@@ -400,11 +400,21 @@ class N1Guard:
         return changed
 
     def _branch_s_nom(self) -> pd.Series:
-        """Branch s_nom [MVA], indexed like `_branch_index`."""
+        """
+        s_nom [MVA] for the same terms as the P-opt objective: every line and
+        every transformer. P-opt has no other component in J.
+
+        A line with s_nom <= 0 uses line_types.s_nom * num_parallel [MVA], as
+        P-opt does. The network column is left unchanged.
+        """
         n = self.network
         parts: list[pd.Series] = []
         if not n.lines.empty:
-            s = n.lines["s_nom"].astype(float)
+            s = n.lines["s_nom"].astype(float).copy()
+            for name in s.index[s <= 0.0]:
+                typ = n.lines.at[name, "type"]
+                npar = float(n.lines.at[name, "num_parallel"])
+                s.at[name] = float(n.line_types.at[typ, "s_nom"]) * npar
             s.index = pd.MultiIndex.from_product(
                 [["Line"], s.index], names=["type", "name"]
             )
@@ -420,7 +430,10 @@ class N1Guard:
         return pd.concat(parts).reindex(self._branch_index()).astype(float)
 
     def _j_loading(self, flow_mw: pd.Series, s_nom: pd.Series) -> float:
-        """J = Σ (p0/s_nom)². p0 [MW], s_nom [MVA]. Zero ratings are left out."""
+        """
+        J = Σ (p0/s_nom)² over lines and transformers, same sum as P-opt.
+        p0 [MW], s_nom [MVA]. A non-positive rating is left out.
+        """
         s = s_nom.reindex(flow_mw.index).astype(float)
         use = s > 0.0
         ratio = flow_mw.loc[use] / s.loc[use]
