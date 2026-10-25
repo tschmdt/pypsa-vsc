@@ -160,6 +160,7 @@ class VSCController:
         if pf_first:
             print("\n === Initial pf() ===")
             self.pf_callback()
+            self._record_initial_ac_loading()
 
         if len(self.network.snapshots) == 0:
             self.network.set_snapshots(
@@ -327,6 +328,7 @@ class VSCController:
         if pf_first:
             print("\n === Initial pf() ===")
             self.pf_callback()
+            self._record_initial_ac_loading()
 
         self.p_result = self.run_p_control(
             angle_limit_deg=angle_limit_deg, apply_guard=False
@@ -516,6 +518,13 @@ class VSCController:
     def _get_subnetwork_for_line(self, line: str) -> Any:
         # Alias für alte Aufrufe – wir arbeiten bewusst mit einem EINZIGEN AC-Subnetz
         return self.n1_guard._get_sn_single()
+
+    def _record_initial_ac_loading(self) -> None:
+        """Worst max(|S0|, |S1|) / s_nom of the AC pf just solved. S, s_nom in MVA."""
+        guard = self.n1_guard
+        guard._initial_worst_ac_loading = {
+            snap: guard._worst_ac_loading(snap) for snap in self.network.snapshots
+        }
 
     def _run_n1_guard(self, rerun_q: bool) -> None:
         """

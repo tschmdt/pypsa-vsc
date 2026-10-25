@@ -239,29 +239,14 @@ class N1Guard:
         hi = (limit - b) / a
         return (min(lo, hi), max(lo, hi))
 
-    def _store_joint_rows(
-        self,
-        outages: pd.MultiIndex,
-        branches: pd.Index,
-        f_base: pd.Series,
-        pmax: pd.Series,
-        bodf: pd.DataFrame,
-        isf_map: dict[str, pd.Series],
-    ) -> None:
-        """
-        Record each finite (outage, branch) row and classify it. Not applied yet.
-
-        b [MW] is the post-contingency DC flow. limit [MW] is
-        s_nom · s_max_pu · margin. a_k [MW/MW] is ISF_k + L[:,o] · ISF_k[o],
-        with p_set > 0 withdrawing at bus0 and injecting at bus1 (η = 1).
-        A pair is influenceable when the converter box can reduce |b| by at
-        least 0.05 · limit. The outaged branch is omitted.
-        """
+    def _link_box(self) -> dict[str, tuple[float, float]]:
+        """ΔP bounds [MW] from the current p_set into p_nom · p_min_pu / p_max_pu."""
         n = self.network
-        room_down: dict[str, float] = {}
-        room_up: dict[str, float] = {}
-        for k in isf_map:
+        box: dict[str, tuple[float, float]] = {}
+        for k in n.links.index:
             p_nom = float(n.links.at[k, "p_nom"]) if "p_nom" in n.links.columns else 0.0
+            if p_nom <= 0.0:
+                continue
             p_now = float(n.links.at[k, "p_set"]) if "p_set" in n.links.columns else 0.0
             pmin_pu = (
                 float(n.links.at[k, "p_min_pu"])
@@ -273,12 +258,33 @@ class N1Guard:
                 if "p_max_pu" in n.links.columns
                 else 1.0
             )
-            if p_nom <= 0.0:
-                room_down[k] = 0.0
-                room_up[k] = 0.0
-                continue
-            room_down[k] = max(p_now - p_nom * pmin_pu, 0.0)
-            room_up[k] = max(p_nom * pmax_pu - p_now, 0.0)
+            box[k] = (p_nom * pmin_pu - p_now, p_nom * pmax_pu - p_now)
+        return box
+
+    def _store_joint_rows(
+        self,
+        outages: pd.MultiIndex,
+        branches: pd.Index,
+        f_base: pd.Series,
+        pmax: pd.Series,
+        bodf: pd.DataFrame,
+        isf_map: dict[str, pd.Series],
+    ) -> None:
+        """
+        Record each finite (outage, branch) row and classify it.
+
+        b [MW] is the post-contingency DC flow. limit [MW] is
+        s_nom · s_max_pu · margin. a_k [MW/MW] is ISF_k + L[:,o] · ISF_k[o],
+        with p_set > 0 withdrawing at bus0 and injecting at bus1 (η = 1).
+        A pair is influenceable when the converter box can reduce |b| by at
+        least 0.05 · limit. The outaged branch is omitted.
+        """
+        box = self._link_box()
+        room_down = {k: max(-lo, 0.0) for k, (lo, _hi) in box.items()}
+        room_up = {k: max(hi, 0.0) for k, (_lo, hi) in box.items()}
+        for k in isf_map:
+            room_down.setdefault(k, 0.0)
+            room_up.setdefault(k, 0.0)
 
         rows: dict[tuple[object, object], tuple[float, float, dict[str, float]]] = {}
         influenceable: set[tuple[object, object]] = set()
@@ -321,6 +327,151 @@ class N1Guard:
         self._influenceable_pairs = influenceable
         self._protected_pairs = protected
 
+    def _flow_ends(
+        self, b: float, a_row: dict[str, float], box: dict[str, tuple[float, float]]
+    ) -> tuple[float, float]:
+        """Endpoint flows [MW] of b + Σ a_k ΔP_k over the converter box."""
+        flow_lo = b
+        flow_hi = b
+        for k, a in a_row.items():
+            if k not in box or a == 0.0:
+                continue
+            lo, hi = box[k]
+            if a > 0.0:
+                flow_lo += a * lo
+                flow_hi += a * hi
+            else:
+                flow_lo += a * hi
+                flow_hi += a * lo
+        return flow_lo, flow_hi
+
+    def _joint_link_dp(self, links: list[str]) -> dict[str, float]:
+        """
+        Minimize t [MW], with |ΔP_k| ≤ t, inside the converter box.
+
+        First: |b + Σ a_k ΔP_k| ≤ limit on influenceable pairs that are over
+        the limit or that the box can push over it. Protected pairs that the
+        box can raise to the current worst protected loading stay at or below
+        that loading. If that program is infeasible: minimize the worst
+        predicted influenceable loading, then t. ΔP is MW from p_set.
+        """
+        import pyomo.environ as pyo
+        from pyomo.opt import TerminationCondition
+
+        from combined_control.P_Optimizer_V2 import _solve_scip_direct
+
+        zero = dict.fromkeys(links, 0.0)
+        rows = self._joint_rows
+        box = self._link_box()
+        influenceable = [key for key in self._influenceable_pairs if key in rows]
+        if not influenceable:
+            return zero
+
+        def worsen(key: tuple[object, object]) -> float:
+            b, lim, a_row = rows[key]
+            flow_lo, flow_hi = self._flow_ends(b, a_row, box)
+            return max(abs(flow_lo), abs(flow_hi)) - abs(b)
+
+        worst_pro = 0.0
+        for key in self._protected_pairs:
+            b, lim, _a = rows[key]
+            worst_pro = max(worst_pro, abs(b) / lim)
+        worst_inf = max(abs(rows[key][0]) / rows[key][1] for key in influenceable)
+
+        security = []
+        for key in influenceable:
+            b, lim, _a = rows[key]
+            flow_lo, flow_hi = self._flow_ends(b, rows[key][2], box)
+            over = abs(b) > lim + 1e-6
+            can_cross = max(abs(flow_lo), abs(flow_hi)) > lim + 1e-6
+            if over or can_cross:
+                security.append(key)
+        if not security:
+            return zero
+
+        def can_reach(key: tuple[object, object], worst: float) -> bool:
+            b, lim, _a = rows[key]
+            now = abs(b) / lim
+            rise = max(worsen(key), 0.0) / lim
+            if worst <= 1e-9:
+                return rise > 1e-9
+            return now >= worst - 1e-9 or now + rise >= worst - 1e-9
+
+        protected = [key for key in self._protected_pairs if can_reach(key, worst_pro)]
+        reach = [key for key in influenceable if can_reach(key, worst_inf)]
+
+        def add_abs(
+            clist: pyo.ConstraintList, model: pyo.ConcreteModel, key: tuple, rhs: float
+        ) -> None:
+            b, _lim, a_row = rows[key]
+            expr = b + sum(a_row.get(k, 0.0) * model.dP[k] for k in links)
+            clist.add(expr <= rhs)
+            clist.add(expr >= -rhs)
+
+        def build(
+            min_t: bool, security_on: bool, u_cap: float | None
+        ) -> pyo.ConcreteModel:
+            model = pyo.ConcreteModel()
+            model.K = pyo.Set(initialize=links)
+            model.dP = pyo.Var(model.K)
+            model.box = pyo.ConstraintList()
+            for k in links:
+                lo, hi = box[k]
+                model.box.add(model.dP[k] >= lo)
+                model.box.add(model.dP[k] <= hi)
+            if min_t:
+                model.t = pyo.Var(domain=pyo.NonNegativeReals)
+                for k in links:
+                    model.box.add(model.dP[k] <= model.t)
+                    model.box.add(model.dP[k] >= -model.t)
+            model.rows = pyo.ConstraintList()
+            if security_on:
+                for key in security:
+                    add_abs(model.rows, model, key, rows[key][1])
+            else:
+                model.u = pyo.Var(domain=pyo.NonNegativeReals)
+                for key in reach:
+                    add_abs(model.rows, model, key, model.u * rows[key][1])
+                if u_cap is not None:
+                    model.rows.add(model.u <= u_cap)
+            for key in protected:
+                add_abs(model.rows, model, key, worst_pro * rows[key][1])
+            if min_t:
+                model.obj = pyo.Objective(expr=model.t, sense=pyo.minimize)
+            else:
+                model.obj = pyo.Objective(expr=model.u, sense=pyo.minimize)
+            return model
+
+        def solved(model: pyo.ConcreteModel) -> bool:
+            result = _solve_scip_direct(model, tee=False, timelimit=30.0)
+            tc = result.solver.termination_condition
+            if tc in (
+                TerminationCondition.infeasible,
+                TerminationCondition.infeasibleOrUnbounded,
+            ):
+                return False
+            if tc not in (
+                TerminationCondition.optimal,
+                TerminationCondition.locallyOptimal,
+            ):
+                raise RuntimeError(f"Guard coordination solve ended {tc}.")
+            return True
+
+        def read(model: pyo.ConcreteModel) -> dict[str, float]:
+            return {k: float(pyo.value(model.dP[k])) for k in links}
+
+        first = build(min_t=True, security_on=True, u_cap=None)
+        if solved(first):
+            return read(first)
+        relief = build(min_t=False, security_on=False, u_cap=None)
+        if not solved(relief):
+            raise RuntimeError("Guard coordination has no feasible partial step.")
+        u_star = float(pyo.value(relief.u))
+        second = build(min_t=True, security_on=False, u_cap=u_star + 1e-6)
+        if not solved(second):
+            raise RuntimeError("Guard coordination could not minimize t.")
+        return read(second)
+
     def _enforce_n1_guard_once(self, snapshot: object) -> bool:
         """
         Prüft N-1 (per BODF) und verschiebt Link-p_set minimal (via ISF-Intervalle).
@@ -344,6 +495,27 @@ class N1Guard:
         BODF = self._get_bodf_single()
         isf_map = self._isf_for_links()
         self._store_joint_rows(outages, branches, F_base, Pmax, BODF, isf_map)
+
+        movable = list(self._link_box())
+        if len(movable) >= 2:
+            overloaded = any(
+                abs(b) > lim + 1e-9 for b, lim, _a in self._joint_rows.values()
+            )
+            if not overloaded:
+                return True
+            p_now = {
+                k: float(n.links.at[k, "p_set"]) if "p_set" in n.links.columns else 0.0
+                for k in movable
+            }
+            dP = self._cap_link_vector(snapshot, p_now, self._joint_link_dp(movable))
+            changed = any(abs(step) > 1e-9 for step in dP.values())
+            for k, step in dP.items():
+                if abs(step) <= 1e-9:
+                    continue
+                self._write_link_p(k, snapshot, p_now[k] + step)
+            if changed:
+                self._lpf_refresh(snapshot)
+            return changed
 
         any_violation = False
         link_intervals: dict[str, tuple[float, float]] = {
@@ -536,12 +708,17 @@ class N1Guard:
         if not n.links_t.p_set.empty:
             n.links_t.p_set.loc[snapshot, link] = p_mw
 
-    def _worst_contingency_loading(self, snapshot: object) -> float:
+    def _worst_contingency_loading(
+        self,
+        snapshot: object,
+        pairs: set[tuple[object, object]] | None = None,
+    ) -> float:
         """
         Worst |F| / limit over resolved outages, from the current DC p0.
 
         Limit is s_nom · s_max_pu · n1_guard_margin [MW]. 1.36 means 136% of
         that limit. The outaged branch and non-finite rows are skipped.
+        `pairs` restricts the score to those (outage, branch) keys.
         """
         branches = self._branch_index()
         F = self._branch_p0(snapshot)
@@ -558,6 +735,8 @@ class N1Guard:
             for branch in branches:
                 if branch == outage:
                     continue
+                if pairs is not None and (outage, branch) not in pairs:
+                    continue
                 lim = float(limit.get(branch, 0.0))
                 flow = float(flowed.get(branch, 0.0))
                 if lim <= 0.0 or not math.isfinite(lim) or not math.isfinite(flow):
@@ -565,36 +744,139 @@ class N1Guard:
                 worst = max(worst, abs(flow) / lim)
         return worst
 
+    def _worst_ac_loading(self, snapshot: object) -> float:
+        """Worst max(|S0|, |S1|) / s_nom after an AC pf. S and s_nom are MVA."""
+        n = self.network
+        s_nom = self._branch_s_nom()
+        worst = 0.0
+        tables = []
+        if not n.lines.empty:
+            tables.append(("Line", n.lines_t))
+        if not n.transformers.empty:
+            tables.append(("Transformer", n.transformers_t))
+        for kind, flows in tables:
+            for name in flows.p0.columns:
+                rating = float(s_nom.get((kind, name), 0.0))
+                if rating <= 0.0 or not math.isfinite(rating):
+                    continue
+                s0 = math.hypot(
+                    float(flows.p0.at[snapshot, name]),
+                    float(flows.q0.at[snapshot, name]),
+                )
+                s1 = math.hypot(
+                    float(flows.p1.at[snapshot, name]),
+                    float(flows.q1.at[snapshot, name]),
+                )
+                worst = max(worst, s0 / rating, s1 / rating)
+        return worst
+
+    def _ac_pf(self) -> None:
+        """AC pf with the controller slack. Positive link p_set is bus0 → bus1."""
+        self.network.pf(
+            distribute_slack=self.cfg.distributed_slack,
+            slack_weights="p_set",
+        )
+
+    def _border_accepts(
+        self,
+        snapshot: object,
+        p_before: pd.Series,
+        base_inf: float,
+        base_pro: float,
+    ) -> bool:
+        """
+        True when the written trial passes the load-flow borders.
+
+        J = Σ (p0/s_nom)² stays within 10% of the pre-guard point. The worst
+        influenceable |F|/limit falls by at least 0.05. The worst protected
+        |F|/limit does not rise. A sign change of p_set also needs the AC
+        worst max(|S|/s_nom) strictly below the initial pf. |S| and s_nom are MVA.
+        """
+        self._lpf_refresh(snapshot)
+        j = self._j_loading(self._branch_p0(snapshot), self._branch_s_nom())
+        inf = self._worst_contingency_loading(snapshot, self._influenceable_pairs)
+        pro = self._worst_contingency_loading(snapshot, self._protected_pairs)
+        if not (
+            j <= 1.10 * self._j_opt_frozen + 1e-9
+            and base_inf - inf >= 0.05
+            and pro <= base_pro + 1e-6
+        ):
+            return False
+        p_now = self.network.links["p_set"].astype(float)
+        reverses = any(
+            float(p_before[k]) * float(p_now[k]) < 0.0 for k in p_before.index
+        )
+        if not reverses:
+            return True
+        self._ac_pf()
+        return (
+            self._worst_ac_loading(snapshot) < self._initial_worst_ac_loading[snapshot]
+        )
+
     def _cap_link_dp(
         self, link: str, snapshot: object, p_now: float, dP: float
     ) -> float:
         """
-        Largest fraction of ΔP [MW], same sign, that a DC lpf actually accepts.
+        Largest fraction of ΔP [MW], same sign, that a DC lpf accepts.
 
-        Keep it only when J stays within 10% of the pre-guard J and the worst
-        post-contingency |F|/limit falls by at least 0.05 from the current
-        point. The PTDF injection factor does not match dF/dp from lpf, so the
-        trial is re-solved rather than taken from ISF·ΔP. Off: return ΔP.
+        Off: return ΔP. Otherwise the borders in `_border_accepts`. The trial
+        is re-solved, not taken from a·ΔP.
         """
         if not self.cfg.n1_guard_j_cap or abs(dP) <= 1e-9:
             return dP
-        self._lpf_refresh(snapshot)
-        base_loading = self._worst_contingency_loading(snapshot)
-        if base_loading <= 0.0:
+        if not self._influenceable_pairs:
             return 0.0
-        s_nom = self._branch_s_nom()
-        j_opt = self._j_opt_frozen
+        self._lpf_refresh(snapshot)
+        base_inf = self._worst_contingency_loading(snapshot, self._influenceable_pairs)
+        if base_inf < 0.05:
+            return 0.0
+        base_pro = self._worst_contingency_loading(snapshot, self._protected_pairs)
+        p_before = self.network.links["p_set"].astype(float).copy()
         accepted = 0.0
         for i in range(20, 0, -1):
             trial = dP * (i / 20.0)
             self._write_link_p(link, snapshot, p_now + trial)
-            self._lpf_refresh(snapshot)
-            j = self._j_loading(self._branch_p0(snapshot), s_nom)
-            loading = self._worst_contingency_loading(snapshot)
-            if j <= 1.10 * j_opt + 1e-9 and base_loading - loading >= 0.05:
+            if self._border_accepts(snapshot, p_before, base_inf, base_pro):
                 accepted = trial
                 break
         self._write_link_p(link, snapshot, p_now)
+        self._lpf_refresh(snapshot)
+        return accepted
+
+    def _cap_link_vector(
+        self,
+        snapshot: object,
+        p_now: dict[str, float],
+        dP: dict[str, float],
+    ) -> dict[str, float]:
+        """
+        Largest common fraction of a joint ΔP [MW] that one DC lpf accepts.
+
+        Off: return ΔP. Empty influenceable set: every component is 0.
+        """
+        zero = dict.fromkeys(dP, 0.0)
+        if not self.cfg.n1_guard_j_cap:
+            return dP
+        if not self._influenceable_pairs or all(
+            abs(step) <= 1e-9 for step in dP.values()
+        ):
+            return zero
+        self._lpf_refresh(snapshot)
+        base_inf = self._worst_contingency_loading(snapshot, self._influenceable_pairs)
+        if base_inf < 0.05:
+            return zero
+        base_pro = self._worst_contingency_loading(snapshot, self._protected_pairs)
+        p_before = self.network.links["p_set"].astype(float).copy()
+        accepted = zero
+        for i in range(20, 0, -1):
+            scale = i / 20.0
+            for k, step in dP.items():
+                self._write_link_p(k, snapshot, p_now[k] + scale * step)
+            if self._border_accepts(snapshot, p_before, base_inf, base_pro):
+                accepted = {k: scale * step for k, step in dP.items()}
+                break
+        for k, p_mw in p_now.items():
+            self._write_link_p(k, snapshot, p_mw)
         self._lpf_refresh(snapshot)
         return accepted
 
