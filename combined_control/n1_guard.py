@@ -329,11 +329,6 @@ class N1Guard:
             return True
 
         changed = False
-        # J_opt is frozen at the pre-guard point for every pass. Later links
-        # see the flows after earlier trims, so the +10% is one budget.
-        s_nom = self._branch_s_nom()
-        j_opt = self._j_opt_frozen
-        f_work = F_base.astype(float).copy()
 
         # Anwenden: erst Hardware-Grenzen schneiden, dann ΔP wählen.
         for k, (lo, hi) in link_intervals.items():
@@ -385,7 +380,7 @@ class N1Guard:
 
             if abs(dP) <= 1e-9:
                 continue
-            dP = self._cap_link_dp(dP, f_work, isf_map[k], s_nom, j_opt, constraints)
+            dP = self._cap_link_dp(k, snapshot, p_now, dP)
             if abs(dP) <= 1e-9:
                 continue
             p_new = p_now + dP
@@ -393,7 +388,6 @@ class N1Guard:
             if n.links_t.p_set.empty:
                 ensure_link_pset_timeseries(n)
             n.links_t.p_set.loc[snapshot, k] = p_new
-            f_work = f_work + isf_map[k].reindex(f_work.index).fillna(0.0) * dP
             changed = True
 
         if changed:
@@ -451,48 +445,74 @@ class N1Guard:
             for a, b, lim in constraints
         )
 
-    def _worst_loading_pu(
-        self, dP: float, constraints: list[tuple[float, float, float]]
-    ) -> float:
-        """Worst |b + a·ΔP| / lim. 1.36 means 136% of the branch limit."""
-        finite = [
-            (a, b, lim)
-            for a, b, lim in constraints
-            if lim > 0.0
-            and math.isfinite(a)
-            and math.isfinite(b)
-            and math.isfinite(lim)
-        ]
-        if not finite:
-            return 0.0
-        return max(abs(b + a * dP) / lim for a, b, lim in finite)
+    def _write_link_p(self, link: str, snapshot: object, p_mw: float) -> None:
+        """Set link p_set [MW], bus0 → bus1. Update the timeseries only if it exists."""
+        n = self.network
+        n.links.at[link, "p_set"] = p_mw
+        if not n.links_t.p_set.empty:
+            n.links_t.p_set.loc[snapshot, link] = p_mw
+
+    def _worst_contingency_loading(self, snapshot: object) -> float:
+        """
+        Worst |F| / limit over resolved outages, from the current DC p0.
+
+        Limit is s_nom · s_max_pu · n1_guard_margin [MW]. 1.36 means 136% of
+        that limit. The outaged branch and non-finite rows are skipped.
+        """
+        branches = self._branch_index()
+        F = self._branch_p0(snapshot)
+        limit = self._branch_s_max() * float(self.cfg.n1_guard_margin)
+        bodf = self._get_bodf_single()
+        worst = 0.0
+        for outage in self._resolve_outages():
+            if outage in bodf.columns:
+                flowed = (F + bodf[outage] * float(F.get(outage, 0.0))).reindex(
+                    branches
+                )
+            else:
+                flowed = F
+            for branch in branches:
+                if branch == outage:
+                    continue
+                lim = float(limit.get(branch, 0.0))
+                flow = float(flowed.get(branch, 0.0))
+                if lim <= 0.0 or not math.isfinite(lim) or not math.isfinite(flow):
+                    continue
+                worst = max(worst, abs(flow) / lim)
+        return worst
 
     def _cap_link_dp(
-        self,
-        dP: float,
-        flow_mw: pd.Series,
-        isf: pd.Series,
-        s_nom: pd.Series,
-        j_opt: float,
-        constraints: list[tuple[float, float, float]],
+        self, link: str, snapshot: object, p_now: float, dP: float
     ) -> float:
         """
-        Largest fraction of ΔP [MW], same sign, with J ≤ 1.10 J_opt and a
-        drop of at least 0.05 in the worst |F|/limit. Off: return ΔP unchanged.
+        Largest fraction of ΔP [MW], same sign, that a DC lpf actually accepts.
+
+        Keep it only when J stays within 10% of the pre-guard J and the worst
+        post-contingency |F|/limit falls by at least 0.05 from the current
+        point. The PTDF injection factor does not match dF/dp from lpf, so the
+        trial is re-solved rather than taken from ISF·ΔP. Off: return ΔP.
         """
         if not self.cfg.n1_guard_j_cap or abs(dP) <= 1e-9:
             return dP
-        base_loading = self._worst_loading_pu(0.0, constraints)
+        self._lpf_refresh(snapshot)
+        base_loading = self._worst_contingency_loading(snapshot)
         if base_loading <= 0.0:
             return 0.0
-        isf_aligned = isf.reindex(flow_mw.index).fillna(0.0)
+        s_nom = self._branch_s_nom()
+        j_opt = self._j_opt_frozen
+        accepted = 0.0
         for i in range(20, 0, -1):
             trial = dP * (i / 20.0)
-            j = self._j_loading(flow_mw + isf_aligned * trial, s_nom)
-            loading = self._worst_loading_pu(trial, constraints)
+            self._write_link_p(link, snapshot, p_now + trial)
+            self._lpf_refresh(snapshot)
+            j = self._j_loading(self._branch_p0(snapshot), s_nom)
+            loading = self._worst_contingency_loading(snapshot)
             if j <= 1.10 * j_opt + 1e-9 and base_loading - loading >= 0.05:
-                return trial
-        return 0.0
+                accepted = trial
+                break
+        self._write_link_p(link, snapshot, p_now)
+        self._lpf_refresh(snapshot)
+        return accepted
 
     def enforce_n1_guard(self, snapshot: object) -> bool:
         if not self.cfg.n1_guard_enable:
@@ -502,9 +522,11 @@ class N1Guard:
             self._branch_p0(snapshot), self._branch_s_nom()
         )
         for _ in range(int(self.cfg.n1_guard_max_passes)):
-            self._enforce_n1_guard_once(snapshot)
+            changed = self._enforce_n1_guard_once(snapshot)
             if self._is_safe_bodf(snapshot):
                 return True
+            if not changed:
+                return False
         return False
 
     def _is_safe_bodf(self, snapshot: object) -> bool:
