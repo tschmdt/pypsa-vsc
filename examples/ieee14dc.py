@@ -391,6 +391,15 @@ def _capture_stage(tag: str) -> None:
 
 _enforce_n1_guard = controller.enforce_n1_guard
 _run_p_control = controller.run_p_control
+_joint_link_dp = controller.n1_guard._joint_link_dp
+# First joint return is the N-1 proposal from the post-optimizer p_set, before the cap scales it.
+_n1_proposals: list[dict[str, float]] = []
+
+
+def _joint_link_dp_with_capture(links: list[str]) -> dict[str, float]:
+    dP = _joint_link_dp(links)
+    _n1_proposals.append(dict(dP))
+    return dP
 
 
 def _enforce_n1_guard_with_capture(snapshot):
@@ -418,6 +427,7 @@ def _run_p_control_with_capture(**kwargs):
 
 
 controller.enforce_n1_guard = _enforce_n1_guard_with_capture
+controller.n1_guard._joint_link_dp = _joint_link_dp_with_capture
 controller.run_p_control = _run_p_control_with_capture
 controller.run_mode(mode="combined")
 
@@ -443,6 +453,10 @@ v_final = stage["v_final"]
 p_set_opt = stage["p_set_opt"]
 p_set_guard = stage["p_set_guard"]
 dP_corrective = stage.get("dP_corrective", pd.Series(0.0, index=n.links.index))
+if _n1_proposals:
+    n1_proposal = pd.Series(_n1_proposals[0], dtype=float).reindex(n.links.index)
+else:
+    n1_proposal = pd.Series(float("nan"), index=n.links.index)
 
 df_loadings = pd.DataFrame(
     {
@@ -466,12 +480,15 @@ df_link_setpoints = pd.DataFrame(
     {
         "p_set initial [MW]": p_set_initial.reindex(n.links.index),
         "p_set opt [MW]": p_set_opt,
+        "N1 proposal [MW]": n1_proposal,
         "guard dP [MW]": dP_corrective,
         "p_set after guard [MW]": p_set_guard,
         "p0 final [MW]": n.links_t.p0.loc[snap],
     }
 )
 
+pd.set_option("display.width", 200)
+pd.set_option("display.max_columns", 10)
 print(f"\nGuard enabled: {cfg.n1_guard_enable}")
 print("\n=== Line loadings: initial / P-opt / guard / final ===")
 print(df_loadings.round(2))

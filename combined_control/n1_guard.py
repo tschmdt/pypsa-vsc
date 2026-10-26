@@ -726,6 +726,7 @@ class N1Guard:
         self,
         snapshot: object,
         pairs: set[tuple[object, object]] | None = None,
+        flow: pd.Series | None = None,
     ) -> float:
         """
         Worst |F| / limit over resolved outages, from the current DC p0.
@@ -733,9 +734,10 @@ class N1Guard:
         Limit is s_nom · s_max_pu · n1_guard_margin [MW]. 1.36 means 136% of
         that limit. The outaged branch and non-finite rows are skipped.
         `pairs` restricts the score to those (outage, branch) keys.
+        `flow` [MW], on the branch index, replaces p0 when given.
         """
         branches = self._branch_index()
-        F = self._branch_p0(snapshot)
+        F = self._branch_p0(snapshot) if flow is None else flow.reindex(branches)
         limit = self._branch_s_max() * float(self.cfg.n1_guard_margin)
         bodf = self._get_bodf_single()
         worst = 0.0
@@ -752,10 +754,10 @@ class N1Guard:
                 if pairs is not None and (outage, branch) not in pairs:
                     continue
                 lim = float(limit.get(branch, 0.0))
-                flow = float(flowed.get(branch, 0.0))
-                if lim <= 0.0 or not math.isfinite(lim) or not math.isfinite(flow):
+                branch_mw = float(flowed.get(branch, 0.0))
+                if lim <= 0.0 or not math.isfinite(lim) or not math.isfinite(branch_mw):
                     continue
-                worst = max(worst, abs(flow) / lim)
+                worst = max(worst, abs(branch_mw) / lim)
         return worst
 
     def _worst_ac_loading(self, snapshot: object) -> float:
@@ -797,6 +799,7 @@ class N1Guard:
         p_before: pd.Series,
         base_inf: float,
         base_pro: float,
+        flow: pd.Series | None = None,
     ) -> bool:
         """
         True when the written trial passes the load-flow borders.
@@ -805,11 +808,14 @@ class N1Guard:
         influenceable |F|/limit falls by at least 0.05. The worst protected
         |F|/limit does not rise. A sign change of p_set also needs the AC
         worst max(|S|/s_nom) strictly below the initial pf. |S| and s_nom are MVA.
+        `flow` [MW] is that DC p0 when given; otherwise one DC lpf is solved.
         """
-        self._lpf_refresh(snapshot)
-        j = self._j_loading(self._branch_p0(snapshot), self._branch_s_nom())
-        inf = self._worst_contingency_loading(snapshot, self._influenceable_pairs)
-        pro = self._worst_contingency_loading(snapshot, self._protected_pairs)
+        if flow is None:
+            self._lpf_refresh(snapshot)
+            flow = self._branch_p0(snapshot)
+        j = self._j_loading(flow, self._branch_s_nom())
+        inf = self._worst_contingency_loading(snapshot, self._influenceable_pairs, flow)
+        pro = self._worst_contingency_loading(snapshot, self._protected_pairs, flow)
         if not (
             j <= 1.10 * self._j_opt_frozen + 1e-9
             and base_inf - inf >= 0.05
@@ -831,27 +837,35 @@ class N1Guard:
         self, link: str, snapshot: object, p_now: float, dP: float
     ) -> float:
         """
-        Largest fraction of ΔP [MW], same sign, that a DC lpf accepts.
+        Largest fraction of ΔP [MW], same sign, that the borders accept.
 
-        Off: return ΔP. Otherwise the borders in `_border_accepts`. The trial
-        is re-solved, not taken from a·ΔP.
+        Off: return ΔP. DC scores use F(0) + λ (F(1) − F(0)) [MW] from two
+        load flows. A sign change still runs one AC pf.
         """
         if not self.cfg.n1_guard_j_cap or abs(dP) <= 1e-9:
             return dP
         if not self._influenceable_pairs:
             return 0.0
         self._lpf_refresh(snapshot)
+        f0 = self._branch_p0(snapshot)
         base_inf = self._worst_contingency_loading(snapshot, self._influenceable_pairs)
         if base_inf < 0.05:
             return 0.0
         base_pro = self._worst_contingency_loading(snapshot, self._protected_pairs)
         p_before = self.network.links["p_set"].astype(float).copy()
+        self._write_link_p(link, snapshot, p_now + dP)
+        self._lpf_refresh(snapshot)
+        f1 = self._branch_p0(snapshot).reindex(f0.index)
+        self._write_link_p(link, snapshot, p_now)
+        delta = f1 - f0
         accepted = 0.0
         for i in range(20, 0, -1):
-            trial = dP * (i / 20.0)
-            self._write_link_p(link, snapshot, p_now + trial)
-            if self._border_accepts(snapshot, p_before, base_inf, base_pro):
-                accepted = trial
+            scale = i / 20.0
+            self._write_link_p(link, snapshot, p_now + scale * dP)
+            if self._border_accepts(
+                snapshot, p_before, base_inf, base_pro, f0 + scale * delta
+            ):
+                accepted = scale * dP
                 break
         self._write_link_p(link, snapshot, p_now)
         self._lpf_refresh(snapshot)
@@ -864,9 +878,10 @@ class N1Guard:
         dP: dict[str, float],
     ) -> dict[str, float]:
         """
-        Largest common fraction of a joint ΔP [MW] that one DC lpf accepts.
+        Largest common fraction of a joint ΔP [MW] that the borders accept.
 
         Off: return ΔP. Empty influenceable set: every component is 0.
+        DC scores use F(0) + λ (F(1) − F(0)) [MW] from two load flows.
         """
         zero = dict.fromkeys(dP, 0.0)
         if not self.cfg.n1_guard_j_cap:
@@ -876,17 +891,27 @@ class N1Guard:
         ):
             return zero
         self._lpf_refresh(snapshot)
+        f0 = self._branch_p0(snapshot)
         base_inf = self._worst_contingency_loading(snapshot, self._influenceable_pairs)
         if base_inf < 0.05:
             return zero
         base_pro = self._worst_contingency_loading(snapshot, self._protected_pairs)
         p_before = self.network.links["p_set"].astype(float).copy()
+        for k, step in dP.items():
+            self._write_link_p(k, snapshot, p_now[k] + step)
+        self._lpf_refresh(snapshot)
+        f1 = self._branch_p0(snapshot).reindex(f0.index)
+        for k, p_mw in p_now.items():
+            self._write_link_p(k, snapshot, p_mw)
+        delta = f1 - f0
         accepted = zero
         for i in range(20, 0, -1):
             scale = i / 20.0
             for k, step in dP.items():
                 self._write_link_p(k, snapshot, p_now[k] + scale * step)
-            if self._border_accepts(snapshot, p_before, base_inf, base_pro):
+            if self._border_accepts(
+                snapshot, p_before, base_inf, base_pro, f0 + scale * delta
+            ):
                 accepted = {k: scale * step for k, step in dP.items()}
                 break
         for k, p_mw in p_now.items():
