@@ -486,7 +486,9 @@ class Network:
         self.all_components = set(component_types_df.index) - {"Network"}
 
         print("Passive one-port components:", self.passive_one_port_components)
-        print("Controllable one-port components:", self.controllable_one_port_components)
+        print(
+            "Controllable one-port components:", self.controllable_one_port_components
+        )
         print("All one-port components:", self.one_port_components)
 
     def _initialize_components(self) -> None:
@@ -1256,18 +1258,18 @@ class Network:
             elif isinstance(v, pd.Series):
                 # Cast names index to string + suffix
                 v = v.rename(
-                    index=lambda s: str(s)
-                    if str(s).endswith(suffix)
-                    else str(s) + suffix
+                    index=lambda s: (
+                        str(s) if str(s).endswith(suffix) else str(s) + suffix
+                    )
                 )
                 if not v.index.equals(names):
                     raise ValueError(msg.format(f"Series {k}", names_str))
             if isinstance(v, pd.DataFrame):
                 # Cast names columns to string + suffix
                 v = v.rename(
-                    columns=lambda s: str(s)
-                    if str(s).endswith(suffix)
-                    else str(s) + suffix
+                    columns=lambda s: (
+                        str(s) if str(s).endswith(suffix) else str(s) + suffix
+                    )
                 )
                 if not v.index.equals(self.snapshots):
                     raise ValueError(msg.format(f"DataFrame {k}", "network snapshots"))

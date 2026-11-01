@@ -303,7 +303,7 @@ cfg = ControllerConfig(
     S_rated=P_NOM_LINK,
     n1_guard_enable=True,  # set False to skip preventive guard
     n1_guard_j_cap=True,  # set False for the unrestricted interval step
-    n1_guard_vhl_level=False,  # set True for the second pass: AC plus one P-removal per VHL
+    n1_guard_vhl_level=True,  # set True for the second pass: AC plus one P-removal per VHL
     n1_guard_margin=0.98,
     n1_guard_max_passes=3,
 )
@@ -325,22 +325,33 @@ def _capture_stage(tag: str) -> None:
 _enforce_n1_guard = controller.enforce_n1_guard
 _run_p_control = controller.run_p_control
 _joint_link_dp = controller.n1_guard._joint_link_dp
-# First joint return is the N-1 proposal from the post-optimizer p_set, before the cap scales it.
-_n1_proposals: list[dict[str, float]] = []
+_guard_passes = controller.n1_guard._guard_passes
+# Each joint return is the uncapped proposal of one pass. stage True is level 2.
+_n1_proposals: list[tuple[bool, dict[str, float]]] = []
+# p_set [MW] after each level, bus0 → bus1. stage True is after the VHL pass.
+_level_p: list[tuple[bool, pd.Series]] = []
 
 
 def _joint_link_dp_with_capture(links: list[str]) -> dict[str, float]:
     dP = _joint_link_dp(links)
-    _n1_proposals.append(dict(dP))
+    _n1_proposals.append((bool(controller.n1_guard._vhl_stage), dict(dP)))
     return dP
 
 
+def _guard_passes_with_capture(snapshot):
+    ok = _guard_passes(snapshot)
+    _level_p.append(
+        (bool(controller.n1_guard._vhl_stage), n.links["p_set"].astype(float).copy())
+    )
+    return ok
+
+
 def _enforce_n1_guard_with_capture(snapshot):
-    # After P-opt, before guard
+    # After P-opt and the first Q-opt, before either guard level.
     n.pf()
     _capture_stage("opt")
     ok = _enforce_n1_guard(snapshot)
-    # After preventive guard
+    # After level 1 and, when the flag is on, after level 2. Q has not run again.
     n.pf()
     _capture_stage("guard")
     stage["dP_corrective"] = stage["p_set_guard"] - stage["p_set_opt"]
@@ -361,6 +372,7 @@ def _run_p_control_with_capture(**kwargs):
 
 controller.enforce_n1_guard = _enforce_n1_guard_with_capture
 controller.n1_guard._joint_link_dp = _joint_link_dp_with_capture
+controller.n1_guard._guard_passes = _guard_passes_with_capture
 controller.run_p_control = _run_p_control_with_capture
 controller.run_mode(mode="combined")
 
@@ -384,12 +396,34 @@ v_opt = stage["v_opt"]
 v_guard = stage["v_guard"]
 v_final = stage["v_final"]
 p_set_opt = stage["p_set_opt"]
-p_set_guard = stage["p_set_guard"]
 dP_corrective = stage.get("dP_corrective", pd.Series(0.0, index=n.links.index))
-if _n1_proposals:
-    n1_proposal = pd.Series(_n1_proposals[0], dtype=float).reindex(n.links.index)
+
+
+def _first_proposal(vhl_stage: bool) -> pd.Series:
+    """Uncapped joint return of that level [MW]. Empty if that level did not solve."""
+    hits = [step for flag, step in _n1_proposals if flag is vhl_stage]
+    if not hits:
+        return pd.Series(float("nan"), index=n.links.index)
+    return pd.Series(hits[0], dtype=float).reindex(n.links.index)
+
+
+p_after_l1 = next(
+    (p.reindex(n.links.index) for flag, p in _level_p if not flag),
+    p_set_opt,
+)
+p_after_l2 = next(
+    (p.reindex(n.links.index) for flag, p in _level_p if flag),
+    None,
+)
+dP_l1 = p_after_l1 - p_set_opt
+if p_after_l2 is None:
+    dP_l2 = pd.Series(0.0, index=n.links.index)
 else:
-    n1_proposal = pd.Series(float("nan"), index=n.links.index)
+    dP_l2 = p_after_l2 - p_after_l1
+proposal_l1 = _first_proposal(False)
+proposal_l2 = _first_proposal(True)
+# Q-opt does not change p_set. This is the P command the VHL controllers receive.
+p_commanded = stage["p_set_final"]
 
 df_loadings = pd.DataFrame(
     {
@@ -413,24 +447,31 @@ df_link_setpoints = pd.DataFrame(
     {
         "p_set initial [MW]": p_set_initial.reindex(n.links.index),
         "p_set opt [MW]": p_set_opt,
-        "N1 proposal [MW]": n1_proposal,
-        "guard dP [MW]": dP_corrective,
-        "p_set after guard [MW]": p_set_guard,
+        "L1 proposal [MW]": proposal_l1,
+        "L1 dP [MW]": dP_l1,
+        "p_set after L1 [MW]": p_after_l1,
+        "L2 proposal [MW]": proposal_l2,
+        "L2 dP [MW]": dP_l2,
+        "p_set commanded [MW]": p_commanded,
         "p0 final [MW]": n.links_t.p0.loc[snap],
     }
 )
 
-pd.set_option("display.width", 200)
-pd.set_option("display.max_columns", 10)
+pd.set_option("display.width", 220)
+pd.set_option("display.max_columns", 20)
 print(f"\nGuard enabled: {cfg.n1_guard_enable}")
+print(f"VHL level: {cfg.n1_guard_vhl_level}")
 print("\n=== Line loadings: initial / P-opt / guard / final ===")
 print(df_loadings.round(2))
 
 print("\n=== Link / VSC active-power setpoints ===")
+print("L1 is the AC-only step. L2 dP is only the VHL-level write, from the L1 setpoints.")
+print("p_set commanded is what the VHL controllers receive after the full guard and the following Q.")
 print(df_link_setpoints.round(3))
 print(
-    f"\nGuard |dP| max = {float(dP_corrective.abs().max()):.3f} MW, "
-    f"sum |dP| = {float(dP_corrective.abs().sum()):.3f} MW"
+    f"\nL1 |dP| sum = {float(dP_l1.abs().sum()):.3f} MW, "
+    f"L2 |dP| sum = {float(dP_l2.abs().sum()):.3f} MW, "
+    f"net |dP| sum = {float(dP_corrective.abs().sum()):.3f} MW"
 )
 
 print("\n=== VSC reactive setpoints (after Q-opt) ===")
@@ -444,30 +485,21 @@ print(df_voltages.round(4))
 # 12. Result plots
 # =============================================================================
 
-load_cols = ["Initial [%]", "After P-opt [%]"]
-if cfg.n1_guard_enable:
-    load_cols.append("After guard [%]")
+# Final (P+Q) is the AC state at the commanded p_set and q_set.
+load_cols = ["Initial [%]", "After P-opt [%]", "Final (P+Q) [%]"]
 df_loadings[load_cols].plot(kind="bar", figsize=(13, 7))
 plt.axhline(100, linestyle="--")
 plt.ylabel("Loading [% of s_nom]")
-plt.title(
-    "Line Loadings: Initial / After P-opt"
-    + (" / After Guard" if cfg.n1_guard_enable else " (guard off)")
-)
+plt.title("Line loadings at the commanded VHL setpoints")
 plt.grid(axis="y", linestyle=":")
 plt.tight_layout()
 plt.show()
 
-v_cols = ["Initial [p.u.]", "After P-opt [p.u.]"]
-if cfg.n1_guard_enable:
-    v_cols.append("After guard [p.u.]")
+v_cols = ["Initial [p.u.]", "After P-opt [p.u.]", "Final (P+Q) [p.u.]"]
 df_voltages[v_cols].plot(marker="o", figsize=(12, 7))
 plt.axhline(1.0, linestyle="--")
 plt.ylabel("Voltage Magnitude [p.u.]")
-plt.title(
-    "Voltage Profile: Initial / After P-opt"
-    + (" / After Guard" if cfg.n1_guard_enable else " (guard off)")
-)
+plt.title("Voltage profile at the commanded VHL setpoints")
 plt.grid(axis="y", linestyle=":")
 plt.tight_layout()
 plt.show()

@@ -49,7 +49,9 @@ def imag(X: pd.Series) -> pd.Series:
 
 
 @deprecated_common_kwargs
-def _allocate_pf_outputs(n: Network, linear: bool = False) -> None:  # independent of linear true/false: this part is executed
+def _allocate_pf_outputs(
+    n: Network, linear: bool = False
+) -> None:  # independent of linear true/false: this part is executed
     to_allocate = {
         "Generator": ["p"],
         "Load": ["p"],
@@ -60,10 +62,12 @@ def _allocate_pf_outputs(n: Network, linear: bool = False) -> None:  # independe
         "Line": ["p0", "p1"],
         "Transformer": ["p0", "p1"],
         "Link": ["p" + col[3:] for col in n.links.columns if col[:3] == "bus"],
-        "ControllableVSC": ["p"], # VSC should only contribute reactive power, which is "added" in the next part on basis of p here
+        "ControllableVSC": [
+            "p"
+        ],  # VSC should only contribute reactive power, which is "added" in the next part on basis of p here
     }
 
-    if not linear:                # if linear case: linear=true and this part is skipped
+    if not linear:  # if linear case: linear=true and this part is skipped
         for component, attrs in to_allocate.items():
             if "p" in attrs:
                 attrs.append("q")
@@ -150,48 +154,48 @@ def _network_prepare_and_run_pf(
     sns = as_index(n, snapshots, "snapshots")
 
     # deal with links
-    #if not n.links.empty:
-        #p_set = get_as_dense(n, "Link", "p_set", sns)
-        #n.links_t.p0.loc[sns] = p_set.loc[sns]
-        #for i in ["1"] + additional_linkports(n):
-            #eff_name = "efficiency" if i == "1" else f"efficiency{i}"
-            #efficiency = get_as_dense(n, "Link", eff_name, sns)
-            #links = n.links.index[n.links[f"bus{i}"] != ""]
-            #n.links_t[f"p{i}"].loc[sns, links] = (
-                #-n.links_t.p0.loc[sns, links] * efficiency.loc[sns, links]
-            #)
+    # if not n.links.empty:
+    # p_set = get_as_dense(n, "Link", "p_set", sns)
+    # n.links_t.p0.loc[sns] = p_set.loc[sns]
+    # for i in ["1"] + additional_linkports(n):
+    # eff_name = "efficiency" if i == "1" else f"efficiency{i}"
+    # efficiency = get_as_dense(n, "Link", eff_name, sns)
+    # links = n.links.index[n.links[f"bus{i}"] != ""]
+    # n.links_t[f"p{i}"].loc[sns, links] = (
+    # -n.links_t.p0.loc[sns, links] * efficiency.loc[sns, links]
+    # )
 
     # deal with links
     if not n.links.empty:
         # Holt p_set als Timeseries für die aktuellen Snapshots (sns)
         p_set = get_as_dense(n, "Link", "p_set", sns)
-        
+
         # P0 ist die Entnahme aus Bus 0 und wird auf den p_set-Wert gesetzt (Ihre Steuergröße)
         n.links_t.p0.loc[sns] = p_set.loc[sns]
-        
+
         # Schleife über alle Link-Ports (bus1, bus2, ...)
         for i in ["1"] + additional_linkports(n):
             eff_name = "efficiency" if i == "1" else f"efficiency{i}"
             efficiency = get_as_dense(n, "Link", eff_name, sns)
             # Filtert nur Links, die den aktuellen Port i auch tatsächlich besitzen
             links = n.links.index[n.links[f"bus{i}"] != ""]
-            
+
             P0 = n.links_t.p0.loc[sns, links]
             Eff = efficiency.loc[sns, links]
             Pi = pd.DataFrame(0.0, index=P0.index, columns=P0.columns)
-            
+
             # === Flussrichtungsabhängige Verlustlogik (Verlust am Empfänger) ===
-            
+
             # A) Fluss 0 -> i (P0 > 1e-9): Bus i ist Empfänger (Nettoleistung)
             # P0 ist Brutto. P_i ist Netto. P_i (Entnahme) = -P0 * Eff
-            mask_0_to_i = P0 > 1e-9 
+            mask_0_to_i = P0 > 1e-9
             Pi[mask_0_to_i] = -P0[mask_0_to_i] * Eff[mask_0_to_i]
 
             # B) Fluss i -> 0 (P0 < -1e-9): Bus 0 ist Empfänger (Nettoleistung)
             # P0 ist Netto. P_i ist Brutto. P_i (Entnahme) = -P0 / Eff
-            mask_i_to_0 = P0 < -1e-9 
+            mask_i_to_0 = P0 < -1e-9
             Pi[mask_i_to_0] = -P0[mask_i_to_0] / Eff[mask_i_to_0]
-            
+
             # Speichert die korrigierte Leistung P_i in die Timeseries
             n.links_t[f"p{i}"].loc[sns, links] = Pi
 
@@ -629,10 +633,9 @@ def sub_network_pf(
             J_Q_blocks = [J10, J11]
 
         J = svstack([shstack(J_P_blocks), shstack(J_Q_blocks)], format="csr")
-        #print("===== JACOBI-MATRIX =====")
-        #print(J.toarray())
+        # print("===== JACOBI-MATRIX =====")
+        # print(J.toarray())
         return J
-    
 
     # Set what we know: slack V and v_mag_pu for PV buses
     v_mag_pu_set = get_as_dense(n, "Bus", "v_mag_pu_set", sns)
@@ -736,9 +739,9 @@ def sub_network_pf(
     if not convs.all():
         not_converged = sns[~convs]
         logger.warning(f"Power flow did not converge for {list(not_converged)}.")
-     # Print the number of iterations
-    #print("Number of iterations for each snapshot:")
-    #print(iters)
+    # Print the number of iterations
+    # print("Number of iterations for each snapshot:")
+    # print(iters)
 
     # now set everything
     if distribute_slack:
@@ -1320,10 +1323,10 @@ def calculate_Y(
     # build Y{0, 1} such that Y{0, 1} * V is the vector complex branch currents
 
     i = r_[np.arange(num_branches), np.arange(num_branches)]
-    sub_network.Y0 = csr_matrix(                                           #ts:
+    sub_network.Y0 = csr_matrix(  # ts:
         (r_[Y00, Y01], (i, r_[bus0, bus1])), (num_branches, num_buses)
     )
-    sub_network.Y1 = csr_matrix(                                           #ts: 
+    sub_network.Y1 = csr_matrix(  # ts:
         (r_[Y10, Y11], (i, r_[bus0, bus1])), (num_branches, num_buses)
     )
 
@@ -1336,15 +1339,12 @@ def calculate_Y(
 
     # ts: print bus Admittanzmatrix (global)
 
-    #print("===== ADMITTANZMATRIK (Y) =====")
-    #print(sub_network.Y.toarray())
-    #print("===== ADMITTANZMATRIK (Y0) =====")
-    #print(sub_network.Y0.toarray())
-    #print("===== ADMITTANZMATRIK (Y1) =====")
-    #print(sub_network.Y1.toarray())
-
-
-
+    # print("===== ADMITTANZMATRIK (Y) =====")
+    # print(sub_network.Y.toarray())
+    # print("===== ADMITTANZMATRIK (Y0) =====")
+    # print(sub_network.Y0.toarray())
+    # print("===== ADMITTANZMATRIK (Y1) =====")
+    # print(sub_network.Y1.toarray())
 
 
 def aggregate_multi_graph(sub_network: SubNetwork) -> None:
@@ -1596,4 +1596,7 @@ def network_batch_lpf(n: Network, snapshots: Sequence | None = None) -> None:
     """
     raise NotImplementedError("Batch linear power flow not supported yet.")
 
-print("Das is mein eigener, in pf.py geschriebenener Code, der bei jedem Lastfluss (pf) aufgerufen wird.")
+
+print(
+    "Das is mein eigener, in pf.py geschriebenener Code, der bei jedem Lastfluss (pf) aufgerufen wird."
+)

@@ -193,3 +193,8 @@ ignore = [
 [tool.ruff.lint.flake8-tidy-imports]
 # Disallow all relative imports.
 ban-relative-imports = "all"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.1",
+]

@@ -4,6 +4,6 @@ import pypsa
 network = pypsa.examples.scigrid_de(from_master=True)
 
 
+import IPython
 
-
-import IPython; IPython.embed()  # startet interaktive Python-Shell für einfache Analyse
+IPython.embed()  # startet interaktive Python-Shell für einfache Analyse

@@ -3,7 +3,13 @@
 from typing import Any
 
 from pypsa.components.abstract import Components
-from pypsa.components.components import Component, Generators, GenericComponents, Lines, ControllableVSCs
+from pypsa.components.components import (
+    Component,
+    Generators,
+    GenericComponents,
+    Lines,
+    ControllableVSCs,
+)
 
 
 def __getattr__(name: str) -> Any:

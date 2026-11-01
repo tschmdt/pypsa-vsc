@@ -1008,9 +1008,14 @@ class N1Guard:
         self._lpf_refresh(snapshot)
         return accepted
 
-    def enforce_n1_guard(self, snapshot: object) -> bool:
-        if not self.cfg.n1_guard_enable:
-            return True
+    def _guard_passes(self, snapshot: object) -> bool:
+        """
+        Repeat the preventive step up to n1_guard_max_passes.
+
+        J_opt is J = Σ (p0/s_nom)² on the DC flows at entry. p0 [MW], s_nom [MVA].
+        A pass that writes no ΔP stops. Safe means no outage in the current
+        list exceeds s_nom · s_max_pu · margin [MW].
+        """
         self._lpf_refresh(snapshot)
         self._j_opt_frozen = self._j_loading(
             self._branch_p0(snapshot), self._branch_s_nom()
@@ -1022,6 +1027,27 @@ class N1Guard:
             if not changed:
                 return False
         return False
+
+    def enforce_n1_guard(self, snapshot: object) -> bool:
+        """
+        Level 1 is AC lines and transformers only.
+
+        If n1_guard_vhl_level is on and at least two VHLs exist, level 2 then
+        runs on those setpoints. It keeps the AC outages and adds one
+        P-removal per VHL: b = F_base − ISF_m · P_m [MW], no column for m.
+        J_opt for level 2 is J at that post-level-1 DC point. One VHL skips
+        level 2. An AC-safe level 1 does not skip it.
+        """
+        if not self.cfg.n1_guard_enable:
+            return True
+        self._vhl_stage = False
+        ac_ok = self._guard_passes(snapshot)
+        if not self._vhl_outages():
+            return ac_ok
+        self._vhl_stage = True
+        vhl_ok = self._guard_passes(snapshot)
+        self._vhl_stage = False
+        return vhl_ok
 
     def _is_safe_bodf(self, snapshot: object) -> bool:
         """

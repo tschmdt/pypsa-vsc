@@ -44,6 +44,7 @@ class GenericComponents(Components):
 
     pass
 
+
 class ControllableVSCs(Components):
     """
     Controllable VSCs components class.
@@ -53,6 +54,7 @@ class ControllableVSCs(Components):
     the abstract base class.
 
     """
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """
         Initialize ControllableVSC class.
@@ -72,6 +74,7 @@ class ControllableVSCs(Components):
 
         """
         super().__init__(*args, **kwargs)
+
 
 class Generators(Components):
     """
@@ -206,7 +209,7 @@ class Lines(Components):
 CLASS_MAPPING = {
     "Generator": Generators,
     "Line": Lines,
-    "ControllableVSC":ControllableVSCs
+    "ControllableVSC": ControllableVSCs,
 }
 
 

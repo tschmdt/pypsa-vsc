@@ -10,7 +10,6 @@ netz.set_snapshots(pd.Index([0]))
 now = netz.snapshots[0]
 
 
-
 # Busse
 netz.add("Bus", "Bus 1", v_nom=110, carrier="AC")
 netz.add("Bus", "Bus 2", v_nom=110, carrier="AC")
@@ -34,14 +33,29 @@ netz.add("Transformer", "Trafo 1", bus0="Bus 5", bus1="Bus 4", x=0.1, r=0.01, s_
 # Shunt
 netz.add("ShuntImpedance", "Shunt 1", bus="Bus 4", g=0.0, b=-50.0)
 
-# Generator 
+# Generator
 netz.add("Generator", "Gen 1", bus="Bus 1", p_set=200, control="Slack", carrier="gas")
 netz.add("Generator", "Gen 3", bus="Bus 3", p_set=100, control="PQ", carrier="coal")
 netz.add("Generator", "Gen 6", bus="Bus 6", p_set=200, control="PV", carrier="solar")
 
-netz.generators.loc["Gen 1", ["p_nom","marginal_cost","p_min_pu","p_max_pu"]] = [400, 30.0, 0.0, 1.0]
-netz.generators.loc["Gen 3", ["p_nom","marginal_cost","p_min_pu","p_max_pu"]] = [300, 35.0, 0.0, 1.0]
-netz.generators.loc["Gen 6", ["p_nom","marginal_cost","p_min_pu","p_max_pu"]] = [350, 29, 0.0, 1.0]
+netz.generators.loc["Gen 1", ["p_nom", "marginal_cost", "p_min_pu", "p_max_pu"]] = [
+    400,
+    30.0,
+    0.0,
+    1.0,
+]
+netz.generators.loc["Gen 3", ["p_nom", "marginal_cost", "p_min_pu", "p_max_pu"]] = [
+    300,
+    35.0,
+    0.0,
+    1.0,
+]
+netz.generators.loc["Gen 6", ["p_nom", "marginal_cost", "p_min_pu", "p_max_pu"]] = [
+    350,
+    29,
+    0.0,
+    1.0,
+]
 
 
 # Last
@@ -52,10 +66,24 @@ netz.add("Load", "Load 6", bus="Bus 6", p_set=125, q_set=10)
 
 # Link
 netz.add(
-    "Link", "Link 1", bus0="Bus 3", bus1="Bus 4", p_set=5.3, efficiency=0.9, p_nom=150,carrier="DC"
+    "Link",
+    "Link 1",
+    bus0="Bus 3",
+    bus1="Bus 4",
+    p_set=5.3,
+    efficiency=0.9,
+    p_nom=150,
+    carrier="DC",
 )
 netz.add(
-    "Link", "Link 2", bus0="Bus 5", bus1="Bus 6", p_set=5.3, efficiency=0.9, p_nom=150,carrier="DC"
+    "Link",
+    "Link 2",
+    bus0="Bus 5",
+    bus1="Bus 6",
+    p_set=5.3,
+    efficiency=0.9,
+    p_nom=150,
+    carrier="DC",
 )
 
 # Voltage Source Converter (VSC)
@@ -98,8 +126,9 @@ print("Laoding_default:", loading_default)
 print("Links:", netz.links_t.p0)
 
 
-#netz.optimize()
+# netz.optimize()
 
 
+import IPython
 
-import IPython; IPython.embed()  # startet interaktive Python-Shell für einfache Analyse
+IPython.embed()  # startet interaktive Python-Shell für einfache Analyse

@@ -23,4 +23,6 @@ netz.pf()
 # Ergebnisse anzeigen
 print(netz.buses_t.v_mag_pu)
 
-import IPython; IPython.embed()  # startet interaktive Python-Shell für einfache Analyse
+import IPython
+
+IPython.embed()  # startet interaktive Python-Shell für einfache Analyse

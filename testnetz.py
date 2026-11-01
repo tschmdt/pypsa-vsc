@@ -38,5 +38,6 @@ print(netz.buses_t.v_mag_pu)
 netz.export_to_netcdf("netz.nc")
 
 
+import IPython
 
-import IPython; IPython.embed()  # startet interaktive Python-Shell für einfache Analyse
+IPython.embed()  # startet interaktive Python-Shell für einfache Analyse
