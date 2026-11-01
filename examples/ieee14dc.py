@@ -38,8 +38,8 @@ from combined_control.VSCController import ControllerConfig, VSCController
 
 n = pypsa.Network()
 
-S_BASE = 100.0   # MVA
-V_BASE = 132.0   # kV
+S_BASE = 100.0  # MVA
+V_BASE = 132.0  # kV
 Z_BASE = V_BASE**2 / S_BASE
 
 
@@ -49,11 +49,7 @@ Z_BASE = V_BASE**2 / S_BASE
 
 bus_names = [f"Bus {i}" for i in range(1, 15)]
 
-n.add(
-    "Bus",
-    bus_names,
-    v_nom=V_BASE
-)
+n.add("Bus", bus_names, v_nom=V_BASE)
 
 # Voltage setpoints of generator buses
 n.buses.loc["Bus 1", "v_mag_pu_set"] = 1.060
@@ -74,21 +70,20 @@ n.buses.loc["Bus 8", "v_mag_pu_set"] = 1.090
 
 lines = [
     # name, bus0, bus1, r_pu, x_pu, b_pu, s_nom
-    ("1-2",   "Bus 1",  "Bus 2",  0.01938, 0.05917, 0.0528, 100),
-    ("1-5",   "Bus 1",  "Bus 5",  0.05403, 0.22304, 0.0492, 100),
-    ("2-3",   "Bus 2",  "Bus 3",  0.04699, 0.19797, 0.0438, 100),
-    ("2-4",   "Bus 2",  "Bus 4",  0.05811, 0.17632, 0.0340, 100),
-    ("2-5",   "Bus 2",  "Bus 5",  0.05695, 0.17388, 0.0346, 100),
-    ("3-4",   "Bus 3",  "Bus 4",  0.06701, 0.17103, 0.0128, 100),
-    ("4-5",   "Bus 4",  "Bus 5",  0.01335, 0.04211, 0.0000, 100),
-
-    ("6-11",  "Bus 6",  "Bus 11", 0.09498, 0.19890, 0.0000, 50),
-    ("6-12",  "Bus 6",  "Bus 12", 0.12291, 0.25581, 0.0000, 50),
-    ("6-13",  "Bus 6",  "Bus 13", 0.06615, 0.13027, 0.0000, 50),
-    ("7-8",   "Bus 7",  "Bus 8",  0.00000, 0.17615, 0.0000, 50),
-    ("7-9",   "Bus 7",  "Bus 9",  0.00000, 0.11001, 0.0000, 50),
-    ("9-10",  "Bus 9",  "Bus 10", 0.03181, 0.08450, 0.0000, 50),
-    ("9-14",  "Bus 9",  "Bus 14", 0.12711, 0.27038, 0.0000, 50),
+    ("1-2", "Bus 1", "Bus 2", 0.01938, 0.05917, 0.0528, 100),
+    ("1-5", "Bus 1", "Bus 5", 0.05403, 0.22304, 0.0492, 100),
+    ("2-3", "Bus 2", "Bus 3", 0.04699, 0.19797, 0.0438, 100),
+    ("2-4", "Bus 2", "Bus 4", 0.05811, 0.17632, 0.0340, 100),
+    ("2-5", "Bus 2", "Bus 5", 0.05695, 0.17388, 0.0346, 100),
+    ("3-4", "Bus 3", "Bus 4", 0.06701, 0.17103, 0.0128, 100),
+    ("4-5", "Bus 4", "Bus 5", 0.01335, 0.04211, 0.0000, 100),
+    ("6-11", "Bus 6", "Bus 11", 0.09498, 0.19890, 0.0000, 50),
+    ("6-12", "Bus 6", "Bus 12", 0.12291, 0.25581, 0.0000, 50),
+    ("6-13", "Bus 6", "Bus 13", 0.06615, 0.13027, 0.0000, 50),
+    ("7-8", "Bus 7", "Bus 8", 0.00000, 0.17615, 0.0000, 50),
+    ("7-9", "Bus 7", "Bus 9", 0.00000, 0.11001, 0.0000, 50),
+    ("9-10", "Bus 9", "Bus 10", 0.03181, 0.08450, 0.0000, 50),
+    ("9-14", "Bus 9", "Bus 14", 0.12711, 0.27038, 0.0000, 50),
     ("10-11", "Bus 10", "Bus 11", 0.08205, 0.19207, 0.0000, 50),
     ("12-13", "Bus 12", "Bus 13", 0.22092, 0.19988, 0.0000, 50),
     ("13-14", "Bus 13", "Bus 14", 0.17093, 0.34802, 0.0000, 50),
@@ -103,7 +98,7 @@ for name, bus0, bus1, r_pu, x_pu, b_pu, s_nom in lines:
         r=r_pu * Z_BASE,
         x=x_pu * Z_BASE,
         b=b_pu / Z_BASE,
-        s_nom=s_nom
+        s_nom=s_nom,
     )
 
 
@@ -132,7 +127,7 @@ for name, bus0, bus1, x_pu, tap_ratio in transformers:
         r=0.0,
         x=x_pu * 50.0 / S_BASE,
         s_nom=50.0,
-        tap_ratio=tap_ratio
+        tap_ratio=tap_ratio,
     )
 
 
@@ -141,12 +136,12 @@ for name, bus0, bus1, x_pu, tap_ratio in transformers:
 # =============================================================================
 
 loads = {
-    "Bus 2":  (21.7, 12.7),
-    "Bus 3":  (94.2, 19.0),
-    "Bus 4":  (47.8, -3.9),
-    "Bus 5":  (7.6, 1.6),
-    "Bus 6":  (11.2, 7.5),
-    "Bus 9":  (29.5, 16.6),
+    "Bus 2": (21.7, 12.7),
+    "Bus 3": (94.2, 19.0),
+    "Bus 4": (47.8, -3.9),
+    "Bus 5": (7.6, 1.6),
+    "Bus 6": (11.2, 7.5),
+    "Bus 9": (29.5, 16.6),
     "Bus 10": (9.0, 5.8),
     "Bus 11": (3.5, 1.8),
     "Bus 12": (6.1, 1.6),
@@ -157,13 +152,7 @@ loads = {
 for bus, (p_set, q_set) in loads.items():
     number = bus.split()[1]
 
-    n.add(
-        "Load",
-        f"Load {number}",
-        bus=bus,
-        p_set=p_set,
-        q_set=q_set
-    )
+    n.add("Load", f"Load {number}", bus=bus, p_set=p_set, q_set=q_set)
 
 
 # =============================================================================
@@ -179,7 +168,7 @@ n.add(
     p_nom=332.4,
     marginal_cost=10,
     p_min_pu=0.0,
-    p_max_pu=1.0
+    p_max_pu=1.0,
 )
 
 n.add(
@@ -191,38 +180,17 @@ n.add(
     p_nom=140.0,
     marginal_cost=30,
     p_min_pu=0.0,
-    p_max_pu=1.0
+    p_max_pu=1.0,
 )
 
 # Synchronous condensers:
 # active power is zero, but voltage is controlled through reactive power.
 
-n.add(
-    "Generator",
-    "SC 3",
-    bus="Bus 3",
-    control="PV",
-    p_set=0.0,
-    p_nom=0.0
-)
+n.add("Generator", "SC 3", bus="Bus 3", control="PV", p_set=0.0, p_nom=0.0)
 
-n.add(
-    "Generator",
-    "SC 6",
-    bus="Bus 6",
-    control="PV",
-    p_set=0.0,
-    p_nom=0.0
-)
+n.add("Generator", "SC 6", bus="Bus 6", control="PV", p_set=0.0, p_nom=0.0)
 
-n.add(
-    "Generator",
-    "SC 8",
-    bus="Bus 8",
-    control="PV",
-    p_set=0.0,
-    p_nom=0.0
-)
+n.add("Generator", "SC 8", bus="Bus 8", control="PV", p_set=0.0, p_nom=0.0)
 
 
 # =============================================================================
@@ -244,25 +212,13 @@ n.add(
     p_set=0.0,
     p_min_pu=-1.0,
     p_max_pu=1.0,
-    efficiency=1.0
+    efficiency=1.0,
 )
 
-n.add(
-    "ControllableVSC",
-    "VSC 1-13 Bus 1",
-    bus="Bus 1",
-    link="VHL 1-13",
-    side="bus0"
-)
+n.add("ControllableVSC", "VSC 1-13 Bus 1", bus="Bus 1", link="VHL 1-13", side="bus0")
 
 
-n.add(
-    "ControllableVSC",
-    "VSC 1-13 Bus 13",
-    bus="Bus 13",
-    link="VHL 1-13",
-    side="bus1"
-)
+n.add("ControllableVSC", "VSC 1-13 Bus 13", bus="Bus 13", link="VHL 1-13", side="bus1")
 
 
 # -------------------------------------------------------------------------
@@ -278,24 +234,12 @@ n.add(
     p_set=0.0,
     p_min_pu=-1.0,
     p_max_pu=1.0,
-    efficiency=1.0
+    efficiency=1.0,
 )
 
-n.add(
-    "ControllableVSC",
-    "VSC 1-11 Bus 1",
-    bus="Bus 1",
-    link="VHL 1-11",
-    side="bus0"
-)
+n.add("ControllableVSC", "VSC 1-11 Bus 1", bus="Bus 1", link="VHL 1-11", side="bus0")
 
-n.add(
-    "ControllableVSC",
-    "VSC 1-11 Bus 11",
-    bus="Bus 11",
-    link="VHL 1-11",
-    side="bus1"
-)
+n.add("ControllableVSC", "VSC 1-11 Bus 11", bus="Bus 11", link="VHL 1-11", side="bus1")
 
 
 # -------------------------------------------------------------------------
@@ -311,24 +255,12 @@ n.add(
     p_set=0.0,
     p_min_pu=-1.0,
     p_max_pu=1.0,
-    efficiency=1.0
+    efficiency=1.0,
 )
 
-n.add(
-    "ControllableVSC",
-    "VSC 10-4 Bus 10",
-    bus="Bus 10",
-    link="VHL 10-4",
-    side="bus0"
-)
+n.add("ControllableVSC", "VSC 10-4 Bus 10", bus="Bus 10", link="VHL 10-4", side="bus0")
 
-n.add(
-    "ControllableVSC",
-    "VSC 10-4 Bus 4",
-    bus="Bus 4",
-    link="VHL 10-4",
-    side="bus1"
-)
+n.add("ControllableVSC", "VSC 10-4 Bus 4", bus="Bus 4", link="VHL 10-4", side="bus1")
 
 
 # =============================================================================
@@ -350,9 +282,9 @@ if not n.controllable_vscs.empty:
 
 n.pf()
 
-loading_initial = 100.0 * np.hypot(
-    n.lines_t.p0.loc[snap], n.lines_t.q0.loc[snap]
-) / line_limits
+loading_initial = (
+    100.0 * np.hypot(n.lines_t.p0.loc[snap], n.lines_t.q0.loc[snap]) / line_limits
+)
 v_initial = n.buses_t.v_mag_pu.loc[snap].copy()
 p_set_initial = (
     n.links_t.p_set.loc[snap].astype(float).copy()
@@ -371,6 +303,7 @@ cfg = ControllerConfig(
     S_rated=P_NOM_LINK,
     n1_guard_enable=True,  # set False to skip preventive guard
     n1_guard_j_cap=True,  # set False for the unrestricted interval step
+    n1_guard_vhl_level=False,  # set True for the second pass: AC plus one P-removal per VHL
     n1_guard_margin=0.98,
     n1_guard_max_passes=3,
 )
@@ -383,9 +316,9 @@ stage = {}
 
 def _capture_stage(tag: str) -> None:
     stage[f"p_set_{tag}"] = n.links_t.p_set.loc[snap].astype(float).copy()
-    stage[f"loading_{tag}"] = 100.0 * np.hypot(
-        n.lines_t.p0.loc[snap], n.lines_t.q0.loc[snap]
-    ) / line_limits
+    stage[f"loading_{tag}"] = (
+        100.0 * np.hypot(n.lines_t.p0.loc[snap], n.lines_t.q0.loc[snap]) / line_limits
+    )
     stage[f"v_{tag}"] = n.buses_t.v_mag_pu.loc[snap].copy()
 
 
@@ -501,9 +434,7 @@ print(
 )
 
 print("\n=== VSC reactive setpoints (after Q-opt) ===")
-print(
-    n.controllable_vscs[["bus", "link", "side", "q_set", "q_min", "q_max"]].round(3)
-)
+print(n.controllable_vscs[["bus", "link", "side", "q_set", "q_min", "q_max"]].round(3))
 
 print("\n=== Bus voltages: initial / P-opt / guard / final ===")
 print(df_voltages.round(4))

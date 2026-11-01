@@ -532,9 +532,10 @@ class VSCController:
         """
         Preventive guard after the optimizers that ran.
 
-        Link p_set is MW, bus0 → bus1. A change refreshes Q limits [MVAr]
-        from S_rated² = P² + Q². AC pf follows, because the guard's lpf
-        replaces the AC solution.
+        Link p_set is MW, bus0 → bus1. AC pf follows, because the guard's lpf
+        replaces the AC solution. When rerun_q is set, Q limits are refreshed
+        from S_rated² = P² + Q² [MVAr] and Q-opt runs again, even if p_set
+        did not move.
         """
         if self.network.links.empty:
             return
@@ -547,12 +548,10 @@ class VSCController:
         self.pf_callback()
         p_after = self.network.links["p_set"].astype(float)
         self._print_guard_correction(p_before, p_after)
-        changed = float((p_after - p_before).abs().max()) > 1e-6
-        if not changed:
+        if not rerun_q:
             return
         self._apply_q_limits_from_p(p_after)
-        if rerun_q:
-            self.run_q_control()
+        self.run_q_control()
 
     def _print_guard_correction(self, p_before: pd.Series, p_after: pd.Series) -> None:
         """Print link p_set [MW] before and after the guard. Positive is bus0 to bus1."""
