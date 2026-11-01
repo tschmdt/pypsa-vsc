@@ -47,6 +47,8 @@ class N1Guard:
     def __init__(self, network: Network, cfg: Any) -> None:
         self.network = network
         self.cfg = cfg
+        # Level 1 (AC only) leaves this False. Level 2 sets it for its own passes.
+        self._vhl_stage = False
 
     def _get_sn_single(self) -> Any:
         """
@@ -205,14 +207,14 @@ class N1Guard:
         """
         Contingency set as MultiIndex (type, name).
 
-        Default: all lines and transformers, plus one `("VHL", link)` per
-        `_vhl_outages()`. Configured strings map to the unique AC branch or VHL
-        with that name; tuples `(type, name)` are used directly. An explicit
-        list does not append extra VHL rows. Ambiguous or missing entries are
-        skipped.
+        Default: all lines and transformers. One `("VHL", link)` per
+        `_vhl_outages()` is added only while `_vhl_stage` is True (level 2).
+        Configured strings map to the unique AC branch, or to a VHL when that
+        stage is on. Tuples `(type, name)` are used directly. An explicit list
+        does not append extra VHL rows. Ambiguous or missing entries are skipped.
         """
         branches = self._branch_index()
-        vhl_keys = [("VHL", m) for m in self._vhl_outages()]
+        vhl_keys = [("VHL", m) for m in self._vhl_outages()] if self._vhl_stage else []
         names = branches.names
         cfg_outages = self.cfg.n1_guard_outages
         if not cfg_outages:
@@ -300,8 +302,15 @@ class N1Guard:
         return found
 
     def _vhl_outages(self) -> list[str]:
-        """Links that are VHL contingencies: `_vhl_links` when at least two exist."""
-        return [] # AC-only: comment this out and restore the body below
+        """
+        VHL contingencies: `_vhl_links` when the second level is configured
+        and at least two complete VHLs exist.
+
+        Empty otherwise. Does not write `p_set`. Level 1 still omits these
+        keys until `_vhl_stage` is set.
+        """
+        if not self.cfg.n1_guard_vhl_level:
+            return []
         found = self._vhl_links()
         if len(found) < 2:
             return []

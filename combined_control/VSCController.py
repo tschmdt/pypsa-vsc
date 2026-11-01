@@ -34,6 +34,7 @@ class ControllerConfig:
         -n1_guard_outages:
         -n1_guard_max_passes: how many times the guard may repeat a correction. A pass that keeps ΔP = 0 stops the repeats. It is not the allowed distance from the optimized setpoint
         -n1_guard_j_cap: if True (default), a guard ΔP is kept only when a re-solved DC load flow shows J within 10% of the pre-guard point and the worst post-contingency loading at least 5 percentage points lower. J is Σ (p0/s_nom)² on lines and transformers, the same sum as P-opt
+        -n1_guard_vhl_level: if True, a second guard pass may add one DC P-removal per VHL after the AC-only pass. Default False: level 1 stays AC lines and transformers only
         -slack_bus: optional override of the angle-reference bus; None keeps the network Slack
         -distributed_slack: P-opt and AC pf share P mismatch by p_set; Slack bus is θ=0 only; DC PTDF stays single-slack
 
@@ -55,6 +56,7 @@ class ControllerConfig:
     n1_guard_max_passes: int = 3
     n1_guard_outages: list[str] | None = None
     n1_guard_j_cap: bool = True
+    n1_guard_vhl_level: bool = False
     slack_bus: str | None = None
     distributed_slack: bool = False
 
