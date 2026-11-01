@@ -136,7 +136,7 @@ class N1Guard:
         n = self.network
         PTDF = self._get_ptdf_single()
         isf: dict[str, pd.Series] = {}
-        for k in n.links.index:
+        for k in self._vhl_links():
             b0 = n.links.at[k, "bus0"]
             b1 = n.links.at[k, "bus1"]
             col0 = PTDF[b0] if b0 in PTDF.columns else pd.Series(0.0, index=PTDF.index)
@@ -205,28 +205,36 @@ class N1Guard:
         """
         Contingency set as MultiIndex (type, name).
 
-        Default: all lines and transformers. Configured strings map to the unique
-        branch with that name; tuples `(type, name)` are used directly. Ambiguous
-        or missing entries are skipped.
+        Default: all lines and transformers, plus one `("VHL", link)` per
+        `_vhl_outages()`. Configured strings map to the unique AC branch or VHL
+        with that name; tuples `(type, name)` are used directly. An explicit
+        list does not append extra VHL rows. Ambiguous or missing entries are
+        skipped.
         """
         branches = self._branch_index()
+        vhl_keys = [("VHL", m) for m in self._vhl_outages()]
+        names = branches.names
         cfg_outages = self.cfg.n1_guard_outages
         if not cfg_outages:
-            return branches
+            keys = list(branches) + vhl_keys
+            if not keys:
+                return pd.MultiIndex.from_tuples([], names=names)
+            return pd.MultiIndex.from_tuples(keys, names=names)
 
+        allowed = set(branches) | set(vhl_keys)
         resolved: list[tuple[str, str]] = []
         for o in cfg_outages:
             if isinstance(o, tuple) and len(o) == 2:
                 key = (str(o[0]), str(o[1]))
-                if key in branches:
+                if key in allowed:
                     resolved.append(key)
                 continue
-            matches = [b for b in branches if b[1] == o]
+            matches = [b for b in allowed if b[1] == o]
             if len(matches) == 1:
                 resolved.append(matches[0])
         if not resolved:
-            return pd.MultiIndex.from_tuples([], names=branches.names)
-        return pd.MultiIndex.from_tuples(resolved, names=branches.names)
+            return pd.MultiIndex.from_tuples([], names=names)
+        return pd.MultiIndex.from_tuples(resolved, names=names)
 
     def _lpf_refresh(self, snapshot: object) -> None:
         """Ensures that p0 is up to date (DC flows at the armature/intermediate point)"""
@@ -245,13 +253,14 @@ class N1Guard:
         return (min(lo, hi), max(lo, hi))
 
     def _link_box(self) -> dict[str, tuple[float, float]]:
-        """ΔP bounds [MW] from the current p_set into p_nom · p_min_pu / p_max_pu."""
+        """ΔP bounds [MW] from the current p_set into p_nom · p_min_pu / p_max_pu.
+
+        Only complete VHLs. A single VHL is still an actuator on AC outages.
+        """
         n = self.network
         box: dict[str, tuple[float, float]] = {}
-        for k in n.links.index:
-            p_nom = float(n.links.at[k, "p_nom"]) if "p_nom" in n.links.columns else 0.0
-            if p_nom <= 0.0:
-                continue
+        for k in self._vhl_links():
+            p_nom = float(n.links.at[k, "p_nom"])
             p_now = float(n.links.at[k, "p_set"]) if "p_set" in n.links.columns else 0.0
             pmin_pu = (
                 float(n.links.at[k, "p_min_pu"])
@@ -268,10 +277,10 @@ class N1Guard:
 
     def _vhl_links(self) -> list[str]:
         """
-        Links with p_nom > 0 [MW] and a VSC on bus0 and on bus1.
+        Complete VHLs: p_nom > 0 [MW] and a VSC on bus0 and on bus1.
 
-        Empty when fewer than two such links. One VHL is not a contingency,
-        and this method does not change p_set.
+        Includes a single VHL. Does not change p_set. Use `_vhl_outages` for
+        the contingency list.
         """
         n = self.network
         vscs = n.controllable_vscs
@@ -288,9 +297,22 @@ class N1Guard:
             if p_nom <= 0.0:
                 continue
             found.append(str(k))
+        return found
+
+    def _vhl_outages(self) -> list[str]:
+        """Links that are VHL contingencies: `_vhl_links` when at least two exist."""
+        return [] # AC-only: comment this out and restore the body below
+        found = self._vhl_links()
         if len(found) < 2:
             return []
         return found
+
+    @staticmethod
+    def _vhl_outage_link(outage: object) -> str | None:
+        """Link name if `outage` is `("VHL", name)`, else None."""
+        if isinstance(outage, tuple) and len(outage) == 2 and str(outage[0]) == "VHL":
+            return str(outage[1])
+        return None
 
     def _store_joint_rows(
         self,
@@ -322,17 +344,33 @@ class N1Guard:
         rows: dict[tuple[object, object], tuple[float, float, dict[str, float]]] = {}
         influenceable: set[tuple[object, object]] = set()
         protected: set[tuple[object, object]] = set()
+        n = self.network
         for o in outages:
-            if o in bodf.columns:
+            m = self._vhl_outage_link(o)
+            if m is not None:
+                p_m = (
+                    float(n.links.at[m, "p_set"]) if "p_set" in n.links.columns else 0.0
+                )
+                isf_m = isf_map[m]
+                # No LODF: the AC branches stay. P_m [MW] is the transfer removed.
+                f_o = (f_base - isf_m * p_m).astype(float)
+                a_by_link = {
+                    k: isf.astype(float) for k, isf in isf_map.items() if k != m
+                }
+            elif o in bodf.columns:
                 lcol = bodf[o].reindex(branches).fillna(0.0)
                 f_o = (f_base + lcol * float(f_base.get(o, 0.0))).astype(float)
+                a_by_link = {
+                    k: (isf + lcol * float(isf.get(o, 0.0))).astype(float)
+                    for k, isf in isf_map.items()
+                }
             else:
                 lcol = pd.Series(0.0, index=branches)
                 f_o = f_base
-            a_by_link = {
-                k: (isf + lcol * float(isf.get(o, 0.0))).astype(float)
-                for k, isf in isf_map.items()
-            }
+                a_by_link = {
+                    k: (isf + lcol * float(isf.get(o, 0.0))).astype(float)
+                    for k, isf in isf_map.items()
+                }
             for ell in branches:
                 if ell == o:
                     continue
@@ -351,34 +389,6 @@ class N1Guard:
                     room = room_down[k] if sign_b * a > 0.0 else room_up[k]
                     relief += abs(a) * room
                 key = (o, ell)
-                rows[key] = (b, lim, a_row)
-                if relief + 1e-9 >= 0.05 * lim:
-                    influenceable.add(key)
-                else:
-                    protected.add(key)
-        n = self.network
-        for m in self._vhl_links():
-            p_m = float(n.links.at[m, "p_set"]) if "p_set" in n.links.columns else 0.0
-            isf_m = isf_map[m]
-            # No LODF: the AC branches stay. P_m [MW] is the transfer removed.
-            f_o = (f_base - isf_m * p_m).astype(float)
-            outage = ("VHL", m)
-            for ell in branches:
-                b = float(f_o.get(ell, 0.0))
-                lim = float(pmax.get(ell, 0.0))
-                if lim <= 0.0 or not math.isfinite(lim) or not math.isfinite(b):
-                    continue
-                a_row = {
-                    k: float(isf.get(ell, 0.0)) for k, isf in isf_map.items() if k != m
-                }
-                sign_b = 1.0 if b > 0.0 else (-1.0 if b < 0.0 else 0.0)
-                relief = 0.0
-                for k, a in a_row.items():
-                    if sign_b == 0.0 or a == 0.0:
-                        continue
-                    room = room_down[k] if sign_b * a > 0.0 else room_up[k]
-                    relief += abs(a) * room
-                key = (outage, ell)
                 rows[key] = (b, lim, a_row)
                 if relief + 1e-9 >= 0.05 * lim:
                     influenceable.add(key)
@@ -804,9 +814,15 @@ class N1Guard:
         F = self._branch_p0(snapshot) if flow is None else flow.reindex(branches)
         limit = self._branch_s_max() * float(self.cfg.n1_guard_margin)
         bodf = self._get_bodf_single()
+        isf_map = self._isf_for_links()
+        links = self.network.links
         worst = 0.0
         for outage in self._resolve_outages():
-            if outage in bodf.columns:
+            m = self._vhl_outage_link(outage)
+            if m is not None:
+                p_m = float(links.at[m, "p_set"]) if "p_set" in links.columns else 0.0
+                flowed = (F - isf_map[m] * p_m).reindex(branches)
+            elif outage in bodf.columns:
                 flowed = (F + bodf[outage] * float(F.get(outage, 0.0))).reindex(
                     branches
                 )
@@ -819,22 +835,6 @@ class N1Guard:
                     continue
                 lim = float(limit.get(branch, 0.0))
                 branch_mw = float(flowed.get(branch, 0.0))
-                if lim <= 0.0 or not math.isfinite(lim) or not math.isfinite(branch_mw):
-                    continue
-                worst = max(worst, abs(branch_mw) / lim)
-        isf_map = self._isf_for_links()
-        links = self.network.links
-        for m in self._vhl_links():
-            p_m = float(links.at[m, "p_set"]) if "p_set" in links.columns else 0.0
-            isf_m = isf_map[m]
-            outage = ("VHL", m)
-            for branch in branches:
-                if pairs is not None and (outage, branch) not in pairs:
-                    continue
-                lim = float(limit.get(branch, 0.0))
-                branch_mw = (
-                    float(F.get(branch, 0.0)) - float(isf_m.get(branch, 0.0)) * p_m
-                )
                 if lim <= 0.0 or not math.isfinite(lim) or not math.isfinite(branch_mw):
                     continue
                 worst = max(worst, abs(branch_mw) / lim)
@@ -1028,21 +1028,20 @@ class N1Guard:
         Pmax = self._branch_s_max() * margin
         outages = self._resolve_outages()
         BODF = self._get_bodf_single()
+        isf_map = self._isf_for_links()
+        links = self.network.links
 
         for o in outages:
-            if o in BODF.columns:
+            m = self._vhl_outage_link(o)
+            if m is not None:
+                p_m = float(links.at[m, "p_set"]) if "p_set" in links.columns else 0.0
+                F_o = (F - isf_map[m] * p_m).reindex(branches, fill_value=0.0)
+            elif o in BODF.columns:
                 F_o = (F + BODF[o] * float(F.get(o, 0.0))).reindex(
                     branches, fill_value=0.0
                 )
             else:
                 F_o = F
             if (F_o.abs() > Pmax + 1e-6).any():
-                return False
-        isf_map = self._isf_for_links()
-        links = self.network.links
-        for m in self._vhl_links():
-            p_m = float(links.at[m, "p_set"]) if "p_set" in links.columns else 0.0
-            flowed = (F - isf_map[m] * p_m).reindex(branches, fill_value=0.0)
-            if (flowed.abs() > Pmax + 1e-6).any():
                 return False
         return True
